@@ -14,7 +14,7 @@ Versioned templates and schemas (R10, G10.2). Markdown templates are filled by t
 | [adr/NNNN-title.md](adr/NNNN-title.md) | A4 | Markdown | MADR 4.0 |
 | [design-system/DESIGN-SYSTEM.md](design-system/DESIGN-SYSTEM.md) | A4 | Markdown | WCAG 2.2 |
 | [design-system/design-tokens.schema.json](design-system/design-tokens.schema.json) | A4 | JSON Schema (structural) | DTCG Format Module 2025.10 (preliminary check) |
-| [dependencies/dependencies.schema.json](dependencies/dependencies.schema.json) | A4 | JSON Schema | Package URL (ECMA-427), SemVer 2.0.0 |
+| [dependencies/dependencies.schema.json](dependencies/dependencies.schema.json) | A4 (*Later*) | JSON Schema | Package URL (ECMA-427), SemVer 2.0.0 |
 | [dor-dod/checklist.schema.json](dor-dod/checklist.schema.json) | A5 | JSON Schema | stack profile, human-approved DoR/DoD; gate results as JUnit XML / SARIF |
 | [stack-profile/profile.schema.json](stack-profile/profile.schema.json) | A4, A5, B2, B4 | JSON Schema (factory configuration in `stacks/<id>/`) | stack profile: commands, services, gates, test interface |
 | [spec/spec.schema.json](spec/spec.schema.json) + [spec/SPEC.md](spec/SPEC.md) | B1 | JSON Schema → Markdown | user stories, EARS, Gherkin, ISO/IEC/IEEE 29148 |

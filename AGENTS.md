@@ -68,7 +68,7 @@ B4 (gates), B6 (docs + DoD) and B7 (acceptance) have no agent: the factory runs 
 
 ## C3 Fix
 - **Scenarios (B2 light):** the scenario skill in mode *bug* (one new hidden test that reproduces the report through the violated AC, must be red on `main`, GC3.4) or *change* (tests only for added and modified criteria). Same tools and run profile as B2; the agent never reads existing hidden tests, the factory assembles the complete set.
-- **Build:** the build skill in *bug* mode (regression test red first, smallest fix, `add_lesson`) or *change* mode (test-first for the changed criteria). Tools as B3 plus `add_lesson` and `await_dependency` (library cause); impact = the report's affected paths (GC3.3); branch `fix/<ID>`. No planner run, except *re-plan* mode for an impact extension (GB3.2). A library version update is a factory commit before the build (GA4.7), never a builder change.
+- **Build:** the build skill in *bug* mode (regression test red first, smallest fix, `add_lesson`) or *change* mode (test-first for the changed criteria). Tools as B3 plus `add_lesson` and `await_dependency` (*Later*) (library cause); impact = the report's affected paths (GC3.3); branch `fix/<ID>`. No planner run, except *re-plan* mode for an impact extension (GB3.2). A library version update is a factory commit before the build (GA4.7), never a builder change.
 - **Then** B4–B7 unchanged; the reviewer gets the report in place of the plan plus the new lesson.
 
 ## Lessons learned (all runs that build or judge code)
