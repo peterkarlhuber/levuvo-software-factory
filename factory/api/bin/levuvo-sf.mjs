@@ -48,7 +48,7 @@ const LABELS = {
 export function answerBody(a, q) {
   const options = q.options ?? [];
   if (!a) return { text: q.recommendation.answer, ...(q.recommendation.option !== undefined ? { chosen_option: q.recommendation.option } : {}) };
-  const m = /^(\d+)\s*(?:[,;:.)-]\s*(.*))?$/s.exec(a);
+  const m = /^(\d+)(?:,\s+(.+))?$/s.exec(a); // only "2" or "2, note": "1,5 Stunden", "2. Dezember", "2:30" stay text
   const n = m ? Number(m[1]) : NaN;
   if (Number.isInteger(n) && n >= 1 && n <= options.length) return { chosen_option: n - 1, ...(m[2]?.trim() ? { text: `${options[n - 1].label} – ${m[2].trim()}` } : {}) };
   return { text: a };

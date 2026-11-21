@@ -11,5 +11,6 @@ test("demo answers: Enter = recommendation, number = option, number plus note = 
   assert.deepEqual(answerBody("1, aber Buchung im Viertelstundentakt möglich", q), { chosen_option: 0, text: "Fixed hours – aber Buchung im Viertelstundentakt möglich" });
   assert.deepEqual(answerBody("3, x", q), { text: "3, x" }, "no such option: plain text");
   assert.deepEqual(answerBody("Einladung per Mail und SMS", q), { text: "Einladung per Mail und SMS" });
+  for (const t of ["3 Tage im Voraus", "1,5 Stunden", "1-2 Wochen", "2. Dezember", "2:30 Uhr", "1) ja"]) assert.deepEqual(answerBody(t, q), { text: t }, t);
   assert.deepEqual(answerBody("", { recommendation: { answer: "Ja", reason: "r" } }), { text: "Ja" });
 });
