@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Levuvo SF egress proxy: the only way out of the internet for agent containers (PLAYBOOK G7.2).
 // HTTPS CONNECT only, to hosts on the allowlist of this instance's profile; after DNS, private and reserved
-// addresses are refused and the tunnel goes to the checked address. Every decision is one JSON line on stdout.
+// addresses are refused; the client's TLS ClientHello must name the same host (SNI), then the tunnel goes to the
+// checked address. Every decision is one JSON line on stdout.
+// Remaining limit: the HTTP Host header inside TLS is encrypted and cannot be checked here (domain fronting on a
+// shared CDN address); the model path of block 2 terminates TLS itself.
 // No admin API, no per-run grants, no plain HTTP: a run's network rights come from the agent network the factory
 // puts it on (one proxy instance per profile). Based on the legacy factory proxy, cut down to these checks.
 import { lookup } from "node:dns/promises";
@@ -43,6 +46,63 @@ export function isPrivateAddress(ip) {
   return NOT_PUBLIC[family].check(v, family === 4 ? "ipv4" : "ipv6");
 }
 
+/**
+ * The server name (SNI) of a TLS ClientHello, or null when `buf` is not a complete ClientHello record with exactly
+ * one host name. Only the first TLS record is read; real clients send the whole ClientHello in it.
+ */
+export function readSni(buf) {
+  try {
+    if (buf.length < 5 || buf[0] !== 0x16) return null;
+    const end = 5 + buf.readUInt16BE(3);
+    if (buf.length < end || buf[5] !== 0x01) return null;
+    let i = 5 + 4 + 2 + 32; // handshake header, client version, random
+    i += 1 + buf[i]; // session id
+    i += 2 + buf.readUInt16BE(i); // cipher suites
+    i += 1 + buf[i]; // compression methods
+    const extEnd = i + 2 + buf.readUInt16BE(i);
+    if (extEnd > end) return null;
+    const names = [];
+    for (i += 2; i + 4 <= extEnd; ) {
+      const type = buf.readUInt16BE(i);
+      const len = buf.readUInt16BE(i + 2);
+      i += 4;
+      if (type === 0) {
+        for (let j = i + 2; j + 3 <= i + len; ) {
+          const nlen = buf.readUInt16BE(j + 1);
+          if (buf[j] === 0) names.push(buf.toString("ascii", j + 3, j + 3 + nlen));
+          j += 3 + nlen;
+        }
+      }
+      i += len;
+    }
+    return names.length === 1 ? names[0].toLowerCase().replace(/\.$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Collects the first TLS record from the client (at most 16 KiB + header, at most `ms`), then calls back once. */
+function firstRecord(socket, ms, cb) {
+  let buf = Buffer.alloc(0);
+  let finished = false;
+  const finish = (b) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    socket.removeListener("data", onData);
+    socket.pause();
+    cb(b);
+  };
+  const onData = (d) => {
+    buf = Buffer.concat([buf, d]);
+    if (buf.length >= 5 && (buf[0] !== 0x16 || buf.length >= 5 + buf.readUInt16BE(3))) finish(buf);
+    else if (buf.length > 16384 + 5) finish(buf);
+  };
+  const timer = setTimeout(() => finish(buf), ms);
+  socket.on("data", onData);
+  socket.on("end", () => finish(buf));
+}
+
 function log(entry) {
   process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 }
@@ -52,7 +112,7 @@ function refuse(socket, code, text) {
 }
 
 /** `resolve` and `isPrivate` are seams for the tests; the program always uses the real ones. */
-export function createProxy({ rules, profile = "", resolve = lookup, isPrivate = isPrivateAddress, record = log }) {
+export function createProxy({ rules, profile = "", resolve = lookup, isPrivate = isPrivateAddress, record = log, helloTimeoutMs = 10_000 }) {
   // plain HTTP requests (no CONNECT) are always refused
   const proxy = createServer((req, res) => {
     record({ profile, action: "blocked", client: req.socket.remoteAddress, reason: `plain http ${req.method} not allowed` });
@@ -84,19 +144,31 @@ export function createProxy({ rules, profile = "", resolve = lookup, isPrivate =
       record({ profile, action: "blocked", host, port, client, address, reason: "resolves to a private or reserved address" });
       return refuse(socket, 403, "Forbidden");
     }
-    // connect to the checked address, never resolve the name a second time
-    const upstream = connect(port, address, () => {
-      record({ profile, action: "allowed", host, port, client, address });
-      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      upstream.pipe(socket);
-      socket.pipe(upstream);
+    // the tunnel opens only after the client's TLS ClientHello names the same host
+    socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    firstRecord(socket, helloTimeoutMs, (hello) => {
+      const sni = readSni(hello);
+      const name = host.toLowerCase().replace(/\.$/, "");
+      if (sni !== name) {
+        record({ profile, action: "blocked", host, port, client, address,
+          reason: sni ? `TLS name ${sni} does not match ${name}` : "no TLS ClientHello with exactly one server name" });
+        return socket.destroy();
+      }
+      // connect to the checked address, never resolve the name a second time
+      const upstream = connect(port, address, () => {
+        record({ profile, action: "allowed", host, port, client, address });
+        upstream.write(hello);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+        socket.resume();
+      });
+      upstream.setTimeout(30 * 60_000, () => upstream.destroy());
+      upstream.on("error", (e) => {
+        record({ profile, action: "error", host, port, client, reason: e.code ?? e.message });
+        socket.destroy();
+      });
+      socket.on("close", () => upstream.destroy());
     });
-    upstream.setTimeout(30 * 60_000, () => upstream.destroy());
-    upstream.on("error", (e) => {
-      record({ profile, action: "error", host, port, client, reason: e.code ?? e.message });
-      if (!socket.destroyed) refuse(socket, 502, "Bad Gateway");
-    });
-    socket.on("close", () => upstream.destroy());
   });
   proxy.on("clientError", (_e, socket) => socket.destroy());
   return proxy;
@@ -108,8 +180,7 @@ function main() {
   const file = `/etc/levuvo/allowlist-${profile}.txt`;
   // fail closed: an unreadable or invalid list stops the proxy, so nothing gets out
   const rules = parseAllowlist(readFileSync(file, "utf8"));
-  // a single broken connection must never take the proxy down
-  process.on("uncaughtException", (e) => log({ profile, action: "error", reason: `uncaught: ${e.code ?? e.message}` }));
+  // no global error handler on purpose: an unexpected error ends the process and Docker restarts it (fail closed)
   const port = Number(process.env.PROXY_PORT || 3128);
   createProxy({ rules, profile }).listen(port, () =>
     log({ profile, action: "config", reason: `listening on ${port}, allowlist ${rules.map((r) => `${r.host}:${r.port}`).join(", ")}` }));

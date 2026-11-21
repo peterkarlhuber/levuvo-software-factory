@@ -3,6 +3,8 @@
 # Runs in a one-shot container from the Forgejo image after the server is healthy, on every `docker compose up`.
 # Idempotent: a second run changes nothing. Fails closed: anything unexpected stops with an error, nothing is guessed.
 # The generated admin password lives only in the Forgejo data volume (mode 0600) and is never printed.
+# `init.sh reset-password` (docker compose run --rm git-init reset-password) sets a new random admin password in
+# Forgejo and in the file, e.g. after the password was changed in the web UI or the file was lost.
 set -eu
 
 ADMIN=levuvo-admin
@@ -12,16 +14,28 @@ SECRETS=/var/lib/gitea/levuvo
 PWFILE=$SECRETS/admin-password
 
 fail() { echo "git-init: ERROR: $*" >&2; exit 1; }
+newpw() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
 
 umask 077
 mkdir -p "$SECRETS"
 chmod 700 "$SECRETS"
 
+if [ "${1:-}" = reset-password ]; then
+  pw="$(newpw)"
+  [ "${#pw}" -eq 32 ] || fail "could not generate a password"
+  forgejo admin user change-password --username "$ADMIN" --password "$pw" --must-change-password=false > /dev/null
+  printf '%s' "$pw" > "$PWFILE.new" && mv "$PWFILE.new" "$PWFILE"
+  echo "git-init: new admin password stored; show it with: docker compose exec git cat $PWFILE"
+  exit 0
+elif [ -n "${1:-}" ]; then
+  fail "unknown command: $1 (known: reset-password)"
+fi
+
 if forgejo admin user list --admin | awk 'NR > 1 { print $2 }' | grep -qx "$ADMIN"; then
-  [ -s "$PWFILE" ] || fail "admin user exists but its password file is missing; reset it with: docker compose exec git forgejo admin user change-password --username $ADMIN --password <new> (see factory/README.md)"
+  [ -s "$PWFILE" ] || fail "admin user exists but its password file is missing; set a new one with: docker compose run --rm git-init reset-password"
   echo "git-init: admin user $ADMIN already exists"
 else
-  [ -s "$PWFILE" ] || head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32 > "$PWFILE"
+  [ -s "$PWFILE" ] || newpw > "$PWFILE"
   [ "$(wc -c < "$PWFILE")" -ge 24 ] || fail "could not generate a password"
   forgejo admin user create --admin --username "$ADMIN" --email "$ADMIN@levuvo-sf.local" \
     --password "$(cat "$PWFILE")" --must-change-password=false > /dev/null
@@ -34,7 +48,7 @@ api() { # api <method> <path> [json] -> prints the HTTP status
     -X "$1" -H 'Content-Type: application/json' ${3:+--data "$3"} "$API$2"
 }
 
-[ "$(api GET /user)" = 200 ] || fail "admin login failed; the stored password does not match"
+[ "$(api GET /user)" = 200 ] || fail "admin login failed; the stored password does not match; set a new one with: docker compose run --rm git-init reset-password"
 
 case "$(api GET "/orgs/$ORG")" in
   200) echo "git-init: organization $ORG already exists" ;;

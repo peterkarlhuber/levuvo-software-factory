@@ -7,7 +7,7 @@
 # - agent containers (block 2 on) are put on one of the internal agent networks; their only way out is the egress
 #   proxy of that network, which lets HTTPS through to the hosts of its profile only
 # - the git server is reachable from the Mac on 127.0.0.1 only, and inside Docker only on the internal network
-#   `levuvo-sf-factory`, which agent containers never join
+#   `levuvo-sf_factory`, which agent containers never join
 name: levuvo-sf
 
 x-hardened: &hardened
@@ -36,8 +36,8 @@ services:
   # Local git server: repositories, pull requests, branch protection (WORKFLOW A0, GA0.1, GA0.2).
   git:
     <<: *hardened
-    # Forgejo 15 LTS, pinned by version tag (the build session cannot reach codeberg.org to read the digest)
-    image: codeberg.org/forgejo/forgejo:15.0.7-rootless
+    # Forgejo 15 LTS (security support until 2027-07-15), official multi-arch image pinned by digest
+    image: &forgejo codeberg.org/forgejo/forgejo:15.0.12-rootless@sha256:b670d7724274e1d5c7801b76017b7267e6e5432aa4fe8bed49f781d09476b9dd
     restart: unless-stopped
     mem_limit: 1g
     cpus: 2
@@ -75,9 +75,10 @@ services:
       retries: 30
 
   # One-shot setup after every start: admin `levuvo-admin`, organization `levuvo-sf` (idempotent, git-init/init.sh).
+  # New random admin password: docker compose run --rm git-init reset-password
   git-init:
     <<: *hardened
-    image: codeberg.org/forgejo/forgejo:15.0.7-rootless
+    image: *forgejo
     restart: "no"
     mem_limit: 256m
     cpus: 0.5
@@ -94,37 +95,33 @@ services:
       git: { condition: service_healthy }
 
   # Egress profile "model": only the model API (interviewer, designer, spec writer, planner, scenario tester,
-  # reviewer, triage). Agent runs on `levuvo-sf-agents-model` use http://egress-model:3128 as their proxy.
+  # reviewer, triage). Agent runs on `levuvo-sf_agents-model` use http://egress-model:3128 as their proxy.
   egress-model:
     <<: *egress
     environment: { EGRESS_PROFILE: model }
     networks: [agents-model, internet]
 
   # Egress profile "build": model API plus the npm registry (skeleton builder, builder).
-  # Agent runs on `levuvo-sf-agents-build` use http://egress-build:3128 as their proxy.
+  # Agent runs on `levuvo-sf_agents-build` use http://egress-build:3128 as their proxy.
   egress-build:
     <<: *egress
     environment: { EGRESS_PROFILE: build }
     networks: [agents-build, internet]
 
+# Volume and network names get the project name as prefix (e.g. `levuvo-sf_agents-model`), so the test project
+# `levuvo-sf-test` never shares data or networks with the real factory.
 volumes:
-  git-data:
-    name: levuvo-sf-git
+  git-data: {}
 
 networks:
   # host port of the git server (a published port needs a non-internal network)
-  web:
-    name: levuvo-sf-web
+  web: {}
   # trusted factory services only (the factory API joins in block 2); never an agent container
   factory:
-    name: levuvo-sf-factory
     internal: true
   agents-model:
-    name: levuvo-sf-agents-model
     internal: true
   agents-build:
-    name: levuvo-sf-agents-build
     internal: true
   # the proxies' way out
-  internet:
-    name: levuvo-sf-internet
+  internet: {}
