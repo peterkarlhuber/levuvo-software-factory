@@ -5,16 +5,16 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { allowedPath, clientToken, createGateway, runForToken, storeKey, upstream, upstreamHeaders, UsageMeter } from "./gateway.mjs";
+import { allowedPath, checkRequest, clientToken, REFUSED, createGateway, runForToken, storeKey, upstream, upstreamHeaders, UsageMeter } from "./gateway.mjs";
 
 const TOKEN = "a".repeat(64);
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 
-function setup({ key = "sk-ant-test-key-0123456789abcdef", expires = Date.now() + 60_000 } = {}) {
+function setup({ key = "sk-ant-test-key-0123456789abcdef", expires = Date.now() + 60_000, serverTools } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "gw-"));
   const tokens = join(dir, "tokens"), usage = join(dir, "usage"), keyFile = join(dir, "api-key");
   for (const d of [tokens, usage]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(tokens, sha(TOKEN)), JSON.stringify({ run_id: "run-1", expires_at: new Date(expires).toISOString() }));
+  writeFileSync(join(tokens, sha(TOKEN)), JSON.stringify({ run_id: "run-1", expires_at: new Date(expires).toISOString(), ...(serverTools ? { server_tools: serverTools } : {}) }));
   if (key) writeFileSync(keyFile, key);
   return { dir, tokens, usage, keyFile };
 }
@@ -55,7 +55,7 @@ test("only the exact model paths are allowed", () => {
 
 test("tokens: format, registration and expiry are checked", () => {
   const { tokens } = setup();
-  assert.equal(runForToken(TOKEN, tokens), "run-1");
+  assert.deepEqual(runForToken(TOKEN, tokens), { runId: "run-1", serverTools: [] });
   assert.equal(runForToken("b".repeat(64), tokens), null);
   assert.equal(runForToken("../../etc/passwd", tokens), null);
   assert.equal(runForToken(TOKEN, tokens, Date.now() + 120_000), null, "expired");
@@ -95,6 +95,73 @@ test("usage meter: streaming with cache tokens, JSON, and incomplete streams", (
   const jNoOut = new UsageMeter("application/json");
   jNoOut.push(Buffer.from(JSON.stringify({ model: "m", usage: { input_tokens: 5 } })));
   assert.equal(jNoOut.end().complete, false);
+});
+
+test("usage meter: web searches are counted from server_tool_use, never the queries", () => {
+  const sse = SSE.replace('"usage":{"output_tokens":42}', '"usage":{"output_tokens":42,"server_tool_use":{"web_search_requests":3}}');
+  const m = new UsageMeter("text/event-stream");
+  m.push(Buffer.from(sse));
+  assert.equal(m.end().web_search_requests, 3);
+  const j = new UsageMeter("application/json");
+  j.push(Buffer.from(JSON.stringify({ model: "m", usage: { input_tokens: 5, output_tokens: 6, server_tool_use: { web_search_requests: 1 } } })));
+  assert.equal(j.end().web_search_requests, 1);
+});
+
+test("server-side tools: only the tested web search version, only when the run's token allows it; fail-closed (scope finding 1, branch findings 1, 2, 5)", () => {
+  const req = (o) => Buffer.from(JSON.stringify({ model: "m", messages: [], ...o }));
+  const client = { name: "mcp__factory__ask_human", input_schema: { type: "object" } };
+  const search = { type: "web_search_20250305", name: "web_search", max_uses: 8 };
+  assert.equal(checkRequest(req({ tools: [client] }), []), null);
+  assert.equal(checkRequest(req({ tools: [{ ...client, type: "custom" }] }), []), null);
+  assert.equal(checkRequest(req({}), []), null);
+  assert.equal(checkRequest(req({ tools: [client, search] }), ["web_search"]), null);
+  assert.equal(checkRequest(req({ tools: [{ ...search, allowed_callers: ["direct"] }] }), ["web_search"]), null);
+  assert.equal(checkRequest(req({ tools: [search] }), []), REFUSED.server, "search off");
+  for (const type of ["web_search_20260209", "web_search_20991231", "web_fetch_20250910", "web_fetch_20260209", "code_execution_20250825", "bash_20250124", "text_editor_20250728", "computer_20250124", "memory_20250818", "web_search", null, 5, {}, ["web_search_20250305"]]) {
+    assert.equal(checkRequest(req({ tools: [client, { type, name: "t" }] }), ["web_search"]), REFUSED.server, JSON.stringify(type));
+  }
+  for (const callers of [["code_execution_20250825"], ["direct", "code_execution_20250825"], [], "direct", null]) {
+    assert.equal(checkRequest(req({ tools: [{ ...search, allowed_callers: callers }] }), ["web_search"]), REFUSED.server, JSON.stringify(callers));
+  }
+  for (const bad of [null, "WebSearch", 5, [], { type: "web_search_20250305" }, { name: 5 }]) {
+    assert.equal(checkRequest(req({ tools: [client, bad] }), ["web_search"]), REFUSED.tools, JSON.stringify(bad));
+  }
+  assert.equal(checkRequest(req({ tools: {} }), ["web_search"]), REFUSED.tools);
+  assert.equal(checkRequest(req({ mcp_servers: [{ type: "url", url: "https://example.com" }] }), ["web_search"]), REFUSED.field);
+  assert.equal(checkRequest(req({ container: null }), ["web_search"]), REFUSED.field);
+  for (const b of ["not json", "[]", "null", "5"]) assert.equal(checkRequest(Buffer.from(b), ["web_search"]), REFUSED.json, b);
+  assert.ok(Object.values(REFUSED).every((r) => !/web_search|fetch|20250305/.test(r)), "no request content in a reason");
+});
+
+test("a refused tool never reaches the API and bills nothing; a token cannot grant unknown tools", async () => {
+  const f = await fakeUpstream((req, res) => { res.writeHead(200, { "content-type": "text/event-stream" }); res.end(SSE); });
+  const s = setup({ serverTools: ["web_fetch", "code_execution", "constructor", "__proto__"] });
+  assert.deepEqual(runForToken(TOKEN, s.tokens).serverTools, [], "only known names count");
+  const gw = createGateway({ tokenDir: s.tokens, usageDir: s.usage, keyFile: s.keyFile, target: f.target });
+  const body = JSON.stringify({ model: "m", messages: [], tools: [{ type: "web_fetch_20250910", name: "web_fetch" }] });
+  const r = await call(gw, { headers: { "x-api-key": TOKEN }, body });
+  assert.equal(r.status, 403);
+  assert.equal(JSON.parse(r.body).error.message, `refused by the factory gateway: ${REFUSED.server}`);
+  const r2 = await call(gw, { path: "/v1/messages/count_tokens?beta=true", headers: { "x-api-key": TOKEN }, body: JSON.stringify({ tools: [{ type: "web_search_20250305", name: "web_search" }] }) });
+  assert.equal(r2.status, 403, "count_tokens is checked too");
+  assert.equal(f.seen.length, 0);
+  const lines = readFileSync(join(s.usage, "run-1.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(lines[0].error, "tool_refused");
+  gw.close(); f.srv.close();
+});
+
+test("web search passes when allowed and its count is recorded", async () => {
+  const sse = SSE.replace('"usage":{"output_tokens":42}', '"usage":{"output_tokens":42,"server_tool_use":{"web_search_requests":2}}');
+  const f = await fakeUpstream((req, res) => { res.writeHead(200, { "content-type": "text/event-stream" }); res.end(sse); });
+  const s = setup({ serverTools: ["web_search"] });
+  const gw = createGateway({ tokenDir: s.tokens, usageDir: s.usage, keyFile: s.keyFile, target: f.target });
+  const r = await call(gw, { headers: { "x-api-key": TOKEN }, body: JSON.stringify({ model: "m", messages: [], tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }] }) });
+  assert.equal(r.status, 200);
+  assert.equal(f.seen.length, 1);
+  const line = JSON.parse(readFileSync(join(s.usage, "run-1.jsonl"), "utf8").trim());
+  assert.equal(line.web_search_requests, 2);
+  assert.ok(!JSON.stringify(line).includes("query"));
+  gw.close(); f.srv.close();
 });
 
 test("forwards with the real key, streams back and records usage", async () => {

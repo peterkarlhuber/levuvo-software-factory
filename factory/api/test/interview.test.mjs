@@ -63,6 +63,12 @@ test("sources must exist (GA2.4)", async () => {
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "my head" })), /must be/);
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "answer Q-001" })), /not an answered question/);
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "attachment briefing/x.png" })), /not supported yet/);
+  // web sources (scope review finding 3): https URL and retrieval date, format check only
+  const web = (src) => t.call("update_prd_section", { section: 8, status: "drafted", content: "EAA applies.", source: src });
+  assert.equal(web("briefing/notes.md; web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved 2026-11-21)").isError, undefined);
+  for (const bad of ["web http://example.com (retrieved 2026-11-21)", "web https://example.com", "web https://example.com (2026-11-21)", "web https://exa mple.com (retrieved 2026-11-21)"]) assert.match(textOf(web(bad)), /must be/, bad);
+  assert.match(textOf(web("web https://example.com (retrieved 2026-02-30)")), /invalid retrieval date/);
+  assert.match(textOf(web("web https://example.com (retrieved 2999-01-01)")), /in the future/);
   assert.equal(t.call("update_prd_section", { section: 1, status: "drafted", content: "A booking app.", source: "briefing/notes.md" }).isError, undefined);
 });
 

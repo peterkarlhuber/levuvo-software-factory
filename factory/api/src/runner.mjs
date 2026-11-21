@@ -85,6 +85,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       const skill = skillText();
       const record = {
         run_id: id, project: slug, step: "A2", role: "interviewer", model: role.model, effort: role.effort, billing_mode: s.billing_mode,
+        web_search: role.web_search === true,
         skill: "skills/interview/SKILL.md", skill_sha256: createHash("sha256").update(skill).digest("hex"),
         max_turns: s.max_turns_per_run, started_at: new Date().toISOString(), ended_at: null, exit_reason: null, tool_calls: 0, tools_offered: null,
       };
@@ -105,6 +106,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
         `MCP_TOOL_TIMEOUT=${waitMs + 10 * 60_000}`, // above the wait time; the factory ends the run itself when it is over
         "HOME=/home/node",
         `LEVUVO_SF_MODEL=${role.model}`, `LEVUVO_SF_EFFORT=${role.effort}`, `LEVUVO_SF_MAX_TURNS=${s.max_turns_per_run}`,
+        `LEVUVO_SF_WEB_SEARCH=${record.web_search ? "1" : "0"}`,
       ];
       writeJson(runPath(id), record);
       iv.status = "running";
@@ -113,7 +115,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       iv.last_exit_reason = null;
       iv.log.runs.push({ run_id: id, started_at: record.started_at });
       interview.save(slug, iv);
-      const state = { id, slug, token, containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base, lastFail: null };
+      const state = { id, slug, token, serverTools: record.web_search ? ["web_search"] : [], containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base, lastFail: null };
       renewToken(state);
       active.set(id, state);
       return { id, env, state, model: role.model, effort: role.effort };
@@ -123,7 +125,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
   /** The token lives as long as the run can: renewed on every tool call and answer, revoked at the end (finding 8). */
   function renewToken(st) {
     if (st.finished) return;
-    writeAtomic(tokenFile(st.token), JSON.stringify({ run_id: st.id, expires_at: new Date(Date.now() + st.waitMs + st.idleMs + TOKEN_SPARE_MS).toISOString() }), 0o644);
+    writeAtomic(tokenFile(st.token), JSON.stringify({ run_id: st.id, server_tools: st.serverTools, expires_at: new Date(Date.now() + st.waitMs + st.idleMs + TOKEN_SPARE_MS).toISOString() }), 0o644);
   }
 
   function resetIdle(id) {
