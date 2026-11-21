@@ -29,7 +29,7 @@ You get no plan and no code, on purpose.
 
 ## Part C modes (B2 light)
 - **Bug:** write exactly one new test that reproduces the report through the violated criterion: follow the report's steps, assert the expected behaviour the criterion demands. Title with AC ID and BUG ID (e.g. `AC-003-02 BUG-007 booking for today is accepted`); set `bug` in its manifest entry. The factory adds it to the existing set and runs it on `main`: it must fail at its assertion (GC3.4). If you cannot write a test that the criterion supports, `stop_with_question`.
-- **Change:** write tests only for added and modified criteria. The factory drops the tests of modified and removed criteria and carries all other tests over unchanged.
+- **Change:** write tests only for added and modified criteria (a Change without added or modified criteria does not start you). The factory drops the tests of modified and removed criteria and carries all other tests over unchanged.
 - In both modes your manifest lists only your new tests; the factory builds the manifest of the complete new set version (GB2.1–GB2.5).
 
 ## Procedure

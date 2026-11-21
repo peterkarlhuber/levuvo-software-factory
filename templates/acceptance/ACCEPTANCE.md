@@ -56,4 +56,4 @@
 ## Decision
 - **Approve merge** – you approve this change including the changelog entry and the change type. The factory validates exactly that merge result against current `main` (gates again; review and your renewed approval only if `main` changed in files this change touches), sets the version number, merges and tags the verified commit.
 - **Reject: not as specified** + comment – back to the build (B3; part C: C3) with your comment.
-- **Reject: should be different** + comment – a new spec version (B1; part C: back to triage), or a visual Change for a small visual detail.
+- **Reject: should be different** + comment – a revision of this feature's spec in B1, visual details included (part C: back to triage).

@@ -4,7 +4,7 @@
   "name": "Web app: Next.js (TypeScript) + PostgreSQL",
   "applies_to": "Web apps with UI and/or HTTP API, one TypeScript codebase for frontend and backend, data in PostgreSQL.",
   "image": "node:22-bookworm",
-  "generator": "npx create-next-app@latest . --ts --eslint --app --src-dir --tailwind --use-npm --yes",
+  "generator": "npx create-next-app@16.0.0 . --ts --eslint --app --src-dir --tailwind --use-npm --yes",
   "commands": {
     "install": "npm ci",
     "dev": "npm run dev -- -H $HOST -p $PORT",
@@ -19,6 +19,7 @@
   ],
   "companion_files": ["package.json", "package-lock.json", "migrations/**"],
   "registries": ["registry.npmjs.org"],
+  "gate_config": ["package.json#/scripts", "eslint.config.*", "tsconfig.json", "vitest.config.*", "next.config.*", "playwright.config.*"],
   "gates": [
     { "name": "build", "command": "npm ci && npm run build", "result_format": "exit-code", "dod_text": "The project builds from a clean checkout." },
     { "name": "lint", "command": "npm run lint", "result_format": "exit-code", "dod_text": "Lint passes without errors." },

@@ -9,7 +9,7 @@ The factory explicitly loads the selected skill from the trusted factory reposit
 
 Pausing an attended session (A2, A4, A6, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run. If the human does not answer an `ask_human` within a set time (setting, default 10 min), the run ends the same way and the answer starts a new run (G2.2). The model per run profile is a setting.
 
-Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/` (part A and A6), `features/<ID>/attachments/` (part B) or `bugs/<ID>/attachments/` (part C), scans them, adds them to the inventory and hands the agent their paths.
+Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/` (part A and A6), `features/<ID>/attachments/` (part B) or `bugs/<ID>/attachments/` (part C), scans them, records them with their hash in the question log (attachments under `briefing/` also in the inventory) and hands the agent their paths.
 
 ## A2 Interview
 - **Skill:** [skills/interview/SKILL.md](skills/interview/SKILL.md) (Agent Skills format). Role: product advisor, product only, no technology. Reads the full briefing (per inventory) first, pre-fills the PRD with sources, then asks one question per round, always with a recommended answer. Derives the feature list once Scope is set. Asks in the human's language, writes documents in English. After A3 also runs in *revision* mode (A6) to change the PRD or feature list (e.g. a new feature idea, or a New feature from triage).

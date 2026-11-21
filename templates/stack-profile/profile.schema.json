@@ -4,14 +4,14 @@
   "title": "Levuvo SF stack profile (A4, A5, B2, B4, GA4.1, G8.2)",
   "description": "stacks/<id>/profile.json in the factory repo, never in a project. A stack profile is factory configuration: it changes only through a factory change approved by the human. It defines the project commands, the services the factory starts for runs, the allowed package registries, the mandatory gates with their fixed commands, and the test interface hidden tests rely on. Agent conventions for the stack are in stacks/<id>/CONVENTIONS.md.",
   "type": "object",
-  "required": ["id", "version", "name", "image", "generator", "commands", "services", "registries", "gates", "tests"],
+  "required": ["id", "version", "name", "image", "generator", "commands", "services", "registries", "gate_config", "gates", "tests"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
     "version": { "type": "integer", "minimum": 1, "description": "Projects record the profile id and version they were designed against (ARCHITECTURE.md)." },
     "name": { "type": "string", "minLength": 1 },
     "applies_to": { "type": "string", "description": "One or two sentences: which kind of product this stack is for." },
     "image": { "type": "string", "minLength": 1, "description": "Worker and gate image. During the concept phase a tag; pinned by digest when implemented (R10)." },
-    "generator": { "type": "string", "minLength": 1, "description": "Official, non-interactive generator command used by the skeleton (A5)." },
+    "generator": { "type": "string", "minLength": 1, "not": { "pattern": "@latest\\b" }, "description": "Official, non-interactive generator command used by the skeleton (A5), with the generator pinned to an exact version; a new generator version is a new profile version." },
     "commands": {
       "type": "object",
       "description": "Project commands the skeleton defines (A5). The factory calls them by name; dev and start listen on $HOST:$PORT given by the factory. Order for a gate run with fresh services: install, build, seed, start.",
@@ -44,13 +44,19 @@
     "companion_files": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Files a change may touch as a side effect (e.g. package-lock.json, generated migration metadata). The factory approves a builder's impact extension to them automatically (W6)."
+      "description": "Files a change may touch as a side effect (e.g. package-lock.json, generated migration metadata). The factory approves a builder's impact extension to them automatically (GB3.2); gate_config entries are never companion files."
     },
     "registries": {
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "pattern": "^[a-z0-9.-]+(:[0-9]+)?$" },
-      "description": "Hosts the egress proxy allows for this stack (G7.2)."
+      "description": "Public hosts the egress proxy allows for this stack (G7.2). The factory's own local package registry (Forgejo) is always allowed in addition, for own libraries (GA4.6); no other network access."
+    },
+    "gate_config": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Gate-affecting project files (G8.2): a path or glob, or path#/json/pointer for part of a JSON file (e.g. package.json#/scripts). A change to any of them blocks the merge until the human authorizes it explicitly."
     },
     "gates": {
       "type": "array",

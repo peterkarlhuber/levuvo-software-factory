@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:levuvo:sf:schema:plan:0.2",
   "title": "Levuvo SF feature plan (B2, GB2.1, GB3.2)",
-  "description": "Source of features/<ID>/PLAN.md (rendered by the factory). Written by the planner through tools; 'done' flags are set by the factory when the builder completes a task. The factory additionally checks that every AC of the spec version is covered by a task (GB2.1), that AC IDs exist in that version, and that the last task is the docs task. write_plan accepts only tasks with done: false; only complete_task (B3) sets done: true.",
+  "description": "Source of features/<ID>/PLAN.md (rendered by the factory). Written by the planner through tools; 'done' flags are set by the factory when the builder completes a task. The factory additionally checks that every AC of the spec version is covered by a task (GB2.1), that AC IDs exist in that version, and that the last task is the docs task. write_plan accepts only tasks with done: false; only complete_task (B3) sets done: true. In re-plan mode the factory carries the done state over for tasks unchanged from the previous plan version; new and changed tasks start open.",
   "type": "object",
   "required": ["feature_id", "spec_version", "tasks", "impact"],
   "properties": {

@@ -1,8 +1,12 @@
-import json, copy, sys
+import json, copy, sys, os, glob
+from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
-import os; T=os.environ.get('TEMPLATES','/home/user/levuvo-software-factory/templates/')
+from referencing import Registry, Resource
+T=os.environ.get('TEMPLATES', str(Path(__file__).resolve().parent.parent)+'/')
+# Register every template schema by its $id so cross-schema $refs (urn:levuvo:...) resolve.
+REG=Registry().with_resources([(d['$id'],Resource.from_contents(d)) for d in (json.load(open(f)) for f in glob.glob(T+'*/*.schema.json')) if '$id' in d])
 def V(p):
-    s=json.load(open(T+p)); Draft202012Validator.check_schema(s); return Draft202012Validator(s, format_checker=FormatChecker())
+    s=json.load(open(T+p)); Draft202012Validator.check_schema(s); return Draft202012Validator(s, format_checker=FormatChecker(), registry=REG)
 H='a'*40
 ok=0; bad=0
 def case(v,inst,expect,name):
@@ -59,11 +63,12 @@ case(v,br,True,"build report valid")
 case(v,mut(br,lambda x:x.pop('deviations')),False,"build report no deviations")
 case(v,mut(br,lambda x:x.update(env_vars=["DATABASE_URL=postgres://x"])),False,"build report env value")
 
-gr={"mode":"feature","feature_id":"F-001","commit":H,"main_commit":"b"*40,"tested_tree":"c"*40,"spec_version":1,"scenario_set_version":1,"gate_policy_version":1,"round":1,"created_at":"2026-11-21T10:00:00Z",
+gr={"mode":"feature","feature_id":"F-001","commit":H,"main_commit":"b"*40,"tested_tree":"c"*40,"gate_config_sha256":"d"*64,"spec_version":1,"scenario_set_version":1,"gate_policy_version":1,"round":1,"created_at":"2026-11-21T10:00:00Z",
  "gates":[{"name":"visible-tests","dod_item":"DOD-1","status":"passed","result_format":"junit-xml"}],
  "acceptance_criteria":[{"id":"AC-001-01","status":"not_checked","message":"no visible test"}]}
 v=V('gate-report/gate-report.schema.json')
 case(v,gr,True,"gate report valid")
+case(v,mut(gr,lambda x:x.pop("gate_config_sha256")),False,"gate report without gate config hash")
 case(v,mut(gr,lambda x:x['gates'][0].update(status="skipped")),False,"gate bad status")
 case(v,mut(gr,lambda x:x.pop('spec_version')),False,"gate no spec version")
 case(v,mut(gr,lambda x:x.update(commit="abc")),False,"gate short commit")
@@ -186,7 +191,7 @@ case(v,mut(sk,lambda x:x.update(feature_id="F-001")),False,"build report skeleto
 case(v,mut(sk,lambda x:x['commands'].pop('seed')),False,"build report skeleton without seed")
 case(v,mut(br,lambda x:x.update(commands=sk['commands'])),False,"build report feature with commands")
 v=V('gate-report/gate-report.schema.json')
-gs={"mode":"skeleton","commit":H,"main_commit":"b"*40,"tested_tree":"c"*40,"gate_policy_version":1,"round":1,"created_at":"2026-11-21T10:00:00Z","gates":[{"name":"build","dod_item":"DOD-1","status":"passed"}]}
+gs={"mode":"skeleton","commit":H,"main_commit":"b"*40,"tested_tree":"c"*40,"gate_config_sha256":"d"*64,"gate_policy_version":1,"round":1,"created_at":"2026-11-21T10:00:00Z","gates":[{"name":"build","dod_item":"DOD-1","status":"passed"}]}
 case(v,gs,True,"gate report skeleton")
 case(v,mut(gs,lambda x:x.update(acceptance_criteria=[{"id":"AC-001-01","status":"passed"}])),False,"gate report skeleton with AC")
 case(v,mut(gr,lambda x:x.pop('tested_tree')),False,"gate report without tested tree")
@@ -204,6 +209,9 @@ case(v,mut(qd,lambda x:x['question']['options'][0]['spec_delta'][0].update(targe
 v=V('interview/interview-log.schema.json')
 lg={"step":"C1","item":"BUG-002","status":"running","entries":[]}
 case(v,lg,True,"question log for triage")
+lge=mut(lg,lambda x:x['entries'].append({"question":qa['question'],"answer":{"text":"ja","answered_by":"peter","answered_at":"2026-11-21T10:00:00Z"}}))
+case(v,lge,True,"question log with one entry (cross-schema ref)")
+case(v,mut(lge,lambda x:x['entries'][0]['question'].update(kind="wish")),False,"question log entry with bad kind")
 case(v,mut(lg,lambda x:x.update(step="A2")),False,"question log A2 without inventory version")
 v=V('dor-dod/checklist.schema.json')
 dor={"kind":"definition-of-ready","version":1,"stack_profile":"nextjs-postgres","items":[{"id":"DOR-1","text":"Every AC has an ID","mandatory":True,"verification":"automated"}]}
@@ -215,5 +223,7 @@ case(v,prof,True,"stack profile nextjs-postgres")
 case(v,mut(prof,lambda x:x['commands'].pop('seed')),False,"stack profile without seed")
 case(v,mut(prof,lambda x:x['commands'].pop('start')),False,"stack profile without start")
 case(v,mut(prof,lambda x:x['tests'].update(fresh_services_per_run=False)),False,"stack profile without fresh services")
+case(v,mut(prof,lambda x:x.pop('gate_config')),False,"stack profile without gate_config")
+case(v,mut(prof,lambda x:x.update(generator="npx create-next-app@latest .")),False,"stack profile with unpinned generator")
 print(f"{ok} passed, {bad} failed")
 sys.exit(1 if bad else 0)

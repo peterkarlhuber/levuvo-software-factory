@@ -35,7 +35,7 @@ You do not see the hidden scenarios.
 5. `finish_plan`.
 
 ## Re-plan mode (GB3.2, GC3.3)
-The factory starts this mode when a builder asks for paths outside the impact that are not companion files. Inputs: the current plan (or, in part C, the report and its affected paths), the builder's request with reason, the code. Check whether the paths are really needed for the approved criteria; extend the impact (and tasks, if needed) via `write_plan`, as narrowly as possible. Already done tasks stay done. If the extension would change another feature's spec or a baseline, `stop_with_question`. The result is a new plan version; the spec and the hidden scenarios stay valid.
+The factory starts this mode when a builder asks for paths outside the impact that are not companion files. Inputs: the current plan (or, in part C, the report and its affected paths), the builder's request with reason, the code. Check whether the paths are really needed for the approved criteria; extend the impact (and tasks, if needed) via `write_plan`, as narrowly as possible. Submit every task with `done: false`, as always; the factory carries the done state over for tasks unchanged from the previous plan version. If the extension would change another feature's spec or a baseline, `stop_with_question`. The result is a new plan version; the spec and the hidden scenarios stay valid.
 
 ## Tools (allow-list)
 - `read_docs` – spec, approved project documents, DoD, stack profile.
