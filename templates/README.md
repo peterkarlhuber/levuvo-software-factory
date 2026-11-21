@@ -1,4 +1,4 @@
-# Levuvo SF templates – parts A, B and C
+# Levuvo SF templates – parts A, B, C and D
 
 Versioned templates and schemas (R10, G10.2). Markdown templates are filled by the factory or the human; JSON schemas (JSON Schema 2020-12) check the structure of machine-readable artifacts; the factory additionally enforces cross-field consistency, references, approvals and domain standards (purl, SemVer, DTCG, OpenAPI). Placeholders: `{…}`. Pinned standard versions: see the standards table in the playbook (R10).
 
@@ -26,6 +26,7 @@ Versioned templates and schemas (R10, G10.2). Markdown templates are filled by t
 | [acceptance/ACCEPTANCE.md](acceptance/ACCEPTANCE.md) | B7 | Markdown, generated | R6 |
 | [changelog/CHANGELOG.md](changelog/CHANGELOG.md) | B6, B7 | Markdown, factory-written | Keep a Changelog, SemVer, Conventional Commits |
 | [bugs/report.schema.json](bugs/report.schema.json) + [bugs/REPORT.md](bugs/REPORT.md) | C1/C2, C3 | JSON Schema → Markdown (`bugs/<ID>/`) | IEEE 1044 attributes |
+| [backlog/backlog.schema.json](backlog/backlog.schema.json) | D (A3, A6, C2, B7) | JSON Schema (`backlog.json`, factory-written; shown by the UI, no Markdown) | – |
 | [lessons-learned/lessons-learned.schema.json](lessons-learned/lessons-learned.schema.json) + [lessons-learned/LESSONS-LEARNED.md](lessons-learned/LESSONS-LEARNED.md) | C3, B2, B3, B5 | JSON Schema → Markdown (`docs/`) | – |
 
 Not templated here: `.devcontainer/devcontainer.json` follows the Dev Container specification and `features/<ID>/openapi.yaml` the OpenAPI specification directly; in part C, build, gate and review reports carry the optional `report_id` and the scenario manifest marks bug tests with `bug`; hidden tests use the stack profile's test framework (Gherkin where supported); input schemas of the factory tools are defined with the tools.

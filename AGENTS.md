@@ -7,7 +7,21 @@ One agent base (Claude CLI) with one skill per workflow step. Each step runs as 
 
 The factory explicitly loads the selected skill from the trusted factory repository at the start of each run. It does not rely on automatic skill discovery inside the project checkout. Project repository content cannot replace or override the selected skill, its instructions or the factory-enforced run profile (R7, R9).
 
-Pausing an attended session (A2, A4, A6, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run. If the human does not answer an `ask_human` within a set time (setting, default 10 min), the run ends the same way and the answer starts a new run (G2.2). The model per run profile is a setting.
+Pausing an attended session (A2, A4, A6, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run. If the human does not answer an `ask_human` within a set time (setting, default 10 min), the run ends the same way and the answer starts a new run (G2.2).
+
+**Model and effort per role** (setting, M3): each of the nine roles has its own model and reasoning effort, passed to the official Claude CLI at run start and recorded in the run log (G11.2). Default for every role: Claude Opus 5.5 (`claude-opus-5-5`), effort `medium`. The human can change each role on its own in the settings; a change applies from the next run.
+
+| Role | Steps |
+|---|---|
+| Interviewer | A2, A6 (PRD and feature list) |
+| Designer | A4, A6 (architecture, design) |
+| Skeleton builder | A5 |
+| Spec writer | B1 |
+| Planner | B2 (also re-plan) |
+| Scenario tester | B2, C3 |
+| Builder | B3, C3 |
+| Reviewer | B5 (also test check) |
+| Triage | C1/C2 |
 
 Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/` (part A and A6), `features/<ID>/attachments/` (part B) or `bugs/<ID>/attachments/` (part C), scans them, records them with their hash in the question log (attachments under `briefing/` also in the inventory) and hands the agent their paths.
 
@@ -60,6 +74,8 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 
 B4 (gates), B6 (docs + DoD) and B7 (acceptance) have no agent: the factory runs them itself.
 
+D (backlog) has no agent either: the factory writes `backlog.json`, the human orders and releases entries in the web UI. Agents may read the backlog but never write it (GD3.1).
+
 ## C1/C2 Triage
 - **Skill:** [skills/triage/SKILL.md](skills/triage/SKILL.md). Role: support engineer. Attended like A2. Reads the human's original message and attachments, the affected spec, design system, architecture, earlier reports and matching lessons; reproduces on `main`; asks only the gaps, one question per round with recommendation; writes the report and proposes exactly one category (Bug / Change with spec delta / New feature) with reason. The human decides.
 - **Tools:** `read_docs`, `read_reports`, `read_repo` (read-only, `main`), `run_app` (throwaway copy, reproduction only), `ask_human`, `update_report`, `propose_category` (factory checks GC1.3, GC1.6), `finish_triage` (outcome `decision_required`, `not_reproduced` or `duplicate`).
@@ -79,4 +95,6 @@ Prompt wording partly adopted from AlexPEClub/software-factory (`init`, `write-s
 
 Part B (from his `write-spec` skill and the repository's README): from `write-spec`: explore first, then one question at a time with a recommended answer, numbered testable acceptance criteria, "out of scope" stated explicitly. From his factory flow: a separate agent writes acceptance scenarios the builder never sees; acceptance against them by an independent agent; a build counts only if checks are green on exactly the pushed commit with an unchanged spec; plan tasks as a checklist the builder ticks off; severity levels for review findings. Not adopted: checks running inside the agent's environment, review in the builder's context.
 
-Part C (checked directly in his repository on 2026-11-21: `playbooks/factory.md`, `workflows/starter-kit/workflow.md`, `skills/qa`, `playbooks/improve.md`): his check phase sorts an issue into Feature or Bug and asks whether it is clear what is wrong and what should happen instead; his build phase reproduces a bug with a test, runs it red, and commits the red test before the fix; acceptance scenarios are written for bugs too and kept away from the developer agent; commits carry the issue as scope (`fix(#12): …`); QA has a bug mode that re-checks the failing test and runs regression on related features; his improvement playbook changes the process only with at least two pieces of evidence, never from a single case. Adopted: red test committed before the fix (GC3.1), a hidden test per bug (GC3.4), the report ID as commit scope, "at least twice before a fixed rule" as the promotion trigger (GC3.6). Not adopted: bugs without reference to the spec (we require the violated AC, GC1.3), QA fixing bugs itself, severity levels (deferred to backlog/prioritization), the process engineer agent changing skills (our promotion only proposes a check to the human).
+Part C (checked directly in his repository on 2026-11-21: `playbooks/factory.md`, `workflows/starter-kit/workflow.md`, `skills/qa`, `playbooks/improve.md`): his check phase sorts an issue into Feature or Bug and asks whether it is clear what is wrong and what should happen instead; his build phase reproduces a bug with a test, runs it red, and commits the red test before the fix; acceptance scenarios are written for bugs too and kept away from the developer agent; commits carry the issue as scope (`fix(#12): …`); QA has a bug mode that re-checks the failing test and runs regression on related features; his improvement playbook changes the process only with at least two pieces of evidence, never from a single case. Adopted: red test committed before the fix (GC3.1), a hidden test per bug (GC3.4), the report ID as commit scope, "at least twice before a fixed rule" as the promotion trigger (GC3.6). Not adopted: bugs without reference to the spec (we require the violated AC, GC1.3), QA fixing bugs itself, severity levels (part D orders the backlog by position instead), the process engineer agent changing skills (our promotion only proposes a check to the human).
+
+Part D (checked directly in his repository on 2026-11-21: `README.md`, `playbooks/factory.md`): his queue is the set of open issues with a `factory` label on a Kanban board (new, in check, question / rejected, released, in work, acceptance, review, done, failed); there is no priority field, a runner picks issues by itself up to two in parallel, and there is no fast path for urgent bugs. Adopted: one queue for features and bugs, an explicit release by the human before work starts, few statuses. Not adopted: the issue tracker as storage (our backlog is a versioned file in the project repo), automatic picking without a release, parallel work (V1 does one entry at a time).

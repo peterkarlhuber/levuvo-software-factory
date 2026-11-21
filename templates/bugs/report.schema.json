@@ -8,7 +8,7 @@
   "properties": {
     "id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Permanent, never reused; set by the factory." },
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "status": { "enum": ["triage", "decided", "in_progress", "waiting", "in_acceptance", "done", "closed"], "description": "waiting = C3 waits for a fixed release of an own library (GA4.6, C3). Set by the factory state machine only. triage (C1/C2) → decided (human chose) → in_progress (C3, B4-B6) → in_acceptance (B7) → done (merged). closed = duplicate, handed over as new feature, or closed by the human." },
+    "status": { "enum": ["triage", "decided", "in_progress", "waiting", "in_acceptance", "done", "closed"], "description": "waiting = C3 waits for a fixed release of an own library (GA4.6, C3). Set by the factory state machine only. triage (C1/C2) → decided (human chose; waits in the backlog until released, D2) → in_progress (C3, B4-B6) → in_acceptance (B7) → done (merged). closed = duplicate, handed over as new feature, or closed by the human." },
     "reported_at": { "type": "string", "format": "date-time" },
     "original_message": {
       "type": "object",

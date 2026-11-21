@@ -18,7 +18,7 @@
           "id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
           "name": { "type": "string", "minLength": 1, "maxLength": 80 },
           "summary": { "type": "string", "minLength": 1, "description": "One sentence." },
-          "priority": { "enum": ["must", "should", "could", "wont"], "description": "MoSCoW, preliminary; work order is decided later." },
+          "priority": { "enum": ["must", "should", "could", "wont"], "description": "MoSCoW, preliminary; the work order is the backlog (backlog.json, D)." },
           "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^F-[0-9]{3,}$" }, "uniqueItems": true },
           "scope_ref": { "type": "string", "description": "Capability in PRD section 7 this feature belongs to (GA3.4)." },
           "status": { "enum": ["proposed", "approved", "specifying", "ready", "in_progress", "waiting", "in_acceptance", "done", "removed"], "description": "Set by the factory state machine only (GA3.5). A3/A6: proposed, approved, removed. B: specifying (B1), ready (spec approved), in_progress (B2-B6), waiting (needs a release of an own library or a baseline revision, A6), in_acceptance (B7), done (merged)." },
