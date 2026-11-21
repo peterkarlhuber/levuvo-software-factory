@@ -9,7 +9,7 @@
 <!-- The factory stores the approved PRD's content hash outside this file, bound to its version and approval record (GA3.2). -->
 
 <!-- Rendered by the factory from interview output (GA2.2). Every section carries a status line:
-     Status: open | drafted | confirmed | deferred  ·  Source: briefing/<path> | answer <log entry id> | attachment <path>
+     Status: open | drafted | confirmed | deferred  ·  Source: briefing/<path> | answer <log entry id> | attachment <path> | web <https URL> (retrieved YYYY-MM-DD)
      "deferred" = moved to section 10 by the human (GA2.1). Requirements are written as testable statements where possible
      (ISO/IEC/IEEE 29148:2018 characteristics: necessary, unambiguous, verifiable, consistent). Product level only, no technology choices. -->
 

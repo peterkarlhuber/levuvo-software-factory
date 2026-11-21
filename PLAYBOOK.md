@@ -1,6 +1,6 @@
 # Levuvo SF Playbook
 
-Status: draft v0.6.4 · 2026-11-21
+Status: draft v0.6.5 · 2026-11-21
 
 The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run follows. It applies to all projects and all workflow steps (see [WORKFLOW.md](WORKFLOW.md)).
 
@@ -99,10 +99,10 @@ Before the human decides, every PR comes with a short acceptance package. Defaul
 Every run executes in its own hardened container that is destroyed afterwards. It gets only the access and data its phase needs and no human credentials. Template: run profile per phase; model and reasoning effort per agent role are settings (M3; default Claude Opus 5.5 with effort medium for every role, see AGENTS.md).
 
 - G7.1 [Enforced] No root, all Linux capabilities dropped, no Docker socket, memory/CPU/process limits.
-- G7.2 [Enforced] Network only through the factory's egress proxy with an allowlist.
+- G7.2 [Enforced] Network only through the factory's egress proxy with an allowlist. Server-side tools of the model API (e.g. web search) run at the model provider, not in the container, so container isolation does not limit them: the model gateway allows only the server-side tools the run profile names and refuses every other one (web fetch, code execution, remote MCP servers). V1: web search for the interviewer only, switched on by the owner, API billing mode only.
 - G7.3 [Enforced] Per-phase rights from the run profile: builders commit only in their own checkout and the factory alone pushes to the feature or fix branch (builders get no Git push, approval or merge credentials); spec agent, planner and reviewer have read-only repo access; hidden scenarios are written only by the scenario agent into the factory store and mounted only for the reviewer and the factory's gate runs.
 - G7.4 [Enforced] Short-lived tokens per run, created and revoked by the factory. Model access has two billing modes, a global setting (M3, default *API*; a switch applies from the next run): *API* – the model API key never enters an agent container; only the factory's model gateway holds it: it adds the key to model API calls and records token usage (G12.1). *Subscription* – the human's own Claude plan through the official, unmodified Claude CLI: the human signs in once through Anthropic's own flow (`claude setup-token`) and the factory mounts that token read-only into the run container for the CLI only; no API key is set in that run, and neither the proxy nor any other factory part reads, forwards or injects the token (Anthropic does not permit intermediating plan credentials). This is a deliberate, human-approved exception to keeping credentials out of containers: the egress allowlist (G7.2) still applies and the token can only make model requests. In subscription mode the proxy adds no API key, and the token is long-lived (created by the human, not per run), so it is exempt from per-run creation and revocation; the human can renew or revoke it in the factory settings. When the plan's usage limit is reached, the run pauses with a failure report (R13) instead of failing silently.
-- G7.5 [Instructed] Access to an allowed destination is not permission to send arbitrary data. [Verified] Secrets scanning on outputs and logs (detection cannot be complete).
+- G7.5 [Instructed] Access to an allowed destination is not permission to send arbitrary data. Web search queries leave the factory to the provider's search service: they contain no personal data, secrets, confidential project details or identifying combinations of otherwise harmless facts. A manipulated agent could still leak data through a query; this residual risk is why web search is off until the owner switches it on. [Verified] Secrets scanning on outputs and logs (detection cannot be complete).
 
 ### R8 – Guard integrity
 Builder and reviewer cannot modify, disable, replace or influence the guards that judge their work. Agents may write product tests; they may not touch the mandatory gates.
@@ -167,7 +167,7 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 The human can always see where every feature stands and why. Agents report phase changes and longer steps (not every small step). Every run is traceable afterwards.
 
 - G11.1 [Enforced] Status changes come only from the factory's state machine; agents report through a tool and cannot set a status.
-- G11.2 [Enforced] The factory logs every run itself (start, end, phase, role, model, effort, billing mode, tokens, cost, exit reason, commit, spec version). Agents cannot write or change this log.
+- G11.2 [Enforced] The factory logs every run itself (start, end, phase, role, model, effort, billing mode, web search on/off and number of searches (never the queries), tokens, cost, exit reason, commit, spec version). Agents cannot write or change this log.
 - G11.3 [Enforced] Every artifact is linked to the run that produced it.
 - G11.4 [Enforced] Access and retention rules for logs, reports and packages. [Verified] Detection and removal of credentials and restricted data.
 - G11.5 [Enforced] Simple provenance: every build artifact is linked to source revision, inputs, factory build identity and results (no SLSA level claimed).
@@ -190,6 +190,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
+- 0.6.5 (2026-11-21): Web search for the interviewer: server-side tools are allowed only as named by the run profile and enforced by the model gateway (G7.2); search queries carry no confidential data, residual risk accepted, owner opt-in (G7.5); web search setting and search count logged per run (G11.2).
 - 0.6.4 (2026-11-21): Implementation block 2 (first agent run): G7.4 names the model gateway as the only holder of the API key; Model Context Protocol and gitleaks added to the standards table.
 - 0.6.3 (2026-11-21): Implementation block 1 (factory base): Compose Specification added to the standards table.
 - 0.6.2 (2026-11-21): Workflow part D: backlog added to the template list; MoSCoW marked preliminary, the backlog sets the work order. Model and reasoning effort per agent role as settings (default Opus 5.5, effort medium), effort logged per run (G11.2).

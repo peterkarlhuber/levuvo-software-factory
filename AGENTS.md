@@ -27,8 +27,8 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 
 ## A2 Interview
 - **Skill:** [skills/interview/SKILL.md](skills/interview/SKILL.md) (Agent Skills format). Role: product advisor, product only, no technology. Reads the full briefing (per inventory) first, pre-fills the PRD with sources, then asks one question per round, always with a recommended answer. Derives the feature list once Scope is set. Asks in the human's language, writes documents in English. After A3 also runs in *revision* mode (A6) to change the PRD or feature list (e.g. a new feature idea, or a New feature from triage).
-- **Tools (allow-list):** `read_briefing`, `tag_briefing_file` (sets a tag such as `design-reference` plus a short note in the inventory), `ask_human`, `update_prd_section`, `update_features`, `finish_interview` (factory checks: every section confirmed or deferred, feature list not empty).
-- **Run profile:** read `briefing/`; write only via tools; no shell, no network except Claude API, no git (factory commits).
+- **Tools (allow-list):** `read_briefing`, `tag_briefing_file` (sets a tag such as `design-reference` plus a short note in the inventory), `ask_human`, `update_prd_section`, `update_features`, `finish_interview` (factory checks: every section confirmed or deferred, feature list not empty). Optional: `WebSearch` (Anthropic's server-side web search) when the owner has switched web search on; off by default.
+- **Run profile:** read `briefing/`; write only via tools; no shell, no network except Claude API, no git (factory commits). Web search, when on, runs at Anthropic through the model gateway: the container gets no other network. The gateway allows no other server-side tool (no web fetch, no code execution, no remote MCP servers) and counts the searches per run (G7.2, G7.4). API billing mode only.
 - **Output:** `docs/PRD.md`, `docs/FEATURES.md`, question log; schema-validated.
 - **Visual input:** the briefing folder stays free (no required subfolders). Reads every image for its content: images carrying information (e.g. a photo of handwritten notes) are normal PRD sources; only material that shows a desired look (screenshots, UI sketches, mood boards) is tagged `design-reference` with a short note on what the human likes; unclear cases are asked. Does not discuss design.
 - **Resume:** an interview can be paused and resumed; state lives in the files.
@@ -49,7 +49,7 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 ## B1 Spec
 - **Skill:** [skills/spec/SKILL.md](skills/spec/SKILL.md). Role: requirements engineer. Attended like A2. Reads PRD, FEATURES, architecture, ADRs, design system and built specs, pre-drafts, then asks only the gaps, one question per round with recommendation. Requirements in EARS, each with testable acceptance criteria (Gherkin where useful), out of scope always stated; contract for APIs; UI reference only if a design system applies.
 - **Tools:** `read_docs`, `read_briefing`, `ask_human`, `update_spec`, `write_contract` (APIs; validated), `check_ready` (factory DoR check), `finish_spec`. Approval happens in the factory, by the human.
-- **Run profile:** as A2: no shell, no git, write only via tools, no network except the model API.
+- **Run profile:** as A2 without web search: no shell, no git, write only via tools, no network except the model API.
 - **Output:** `features/<ID>/SPEC.md` (+ contract), question log; the human's approval creates the binding spec version.
 
 ## B2 Plan
