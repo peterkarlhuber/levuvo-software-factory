@@ -62,7 +62,7 @@ test("sources must exist (GA2.4)", async () => {
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "briefing/missing.md" })), /not in the briefing/);
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "my head" })), /must be/);
   assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "answer Q-001" })), /not an answered question/);
-  assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "attachment briefing/x.png" })), /not supported yet/);
+  assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "x", source: "attachment briefing/x.png" })), /not an attachment of an answered question/);
   // web sources (scope review finding 3): https URL and retrieval date, format check only
   const web = (src) => t.call("update_prd_section", { section: 8, status: "drafted", content: "EAA applies.", source: src });
   assert.equal(web("briefing/notes.md; web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved 2026-11-21)").isError, undefined);
@@ -228,4 +228,25 @@ test("a briefing change reopens the sections that rely on the file; re-reading a
   const iv2 = t2.interview.load("demo");
   assert.equal(iv2.prd[1].status, "confirmed");
   assert.match(t2.interview.finishProblems(iv2).join(" "), /closing question/);
+});
+
+test("answer attachments must be read before finishing; reading them records the inventory version (block 3 scope finding 5)", async () => {
+  const t = await setup();
+  const r = t.call("ask_human", { finding: "f", decision_needed: "d", recommendation: { answer: "a", reason: "r" }, prd_sections: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] });
+  const screened = await t.briefing.screenAttachments(r.wait.id, [{ name: "list.md", content_base64: Buffer.from("paper list").toString("base64") }, { name: "talk.mp4", content_base64: Buffer.from("video").toString("base64") }]);
+  const out = t.interview.answer("demo", r.wait.id, { text: "", attachments: screened }, () => t.briefing.storeAttachments("demo", screened));
+  assert.match(textOf(out), /"path": "briefing\/answers\/Q-001\/talk\.mp4"[\s\S]*"readable": false/);
+  let iv = t.interview.load("demo");
+  assert.deepEqual(iv.unread_attachments, ["briefing/answers/Q-001/list.md"], "only readable files are owed");
+  assert.equal(iv.log.entries[0].answer.text, "", "the attachments carry the answer");
+  assert.equal(iv.log.inventory_version_read, 1);
+  assert.match(t.interview.finishProblems(iv).join(";"), /read the answer attachments first: briefing\/answers\/Q-001\/list\.md/);
+  assert.match(textOf(t.call("read_briefing", { path: "briefing/answers/Q-001/list.md" })), /paper list/);
+  iv = t.interview.load("demo");
+  assert.deepEqual(iv.unread_attachments, []);
+  assert.equal(iv.log.inventory_version_read, 2);
+  assert.doesNotMatch(t.interview.finishProblems(iv).join(";"), /attachments/);
+  await assert.rejects(t.briefing.screenAttachments("Q-002", "x"), /list of at most 10/);
+  await assert.rejects(t.briefing.screenAttachments("Q-002", [{ name: "a/b.md", content_base64: "eA==" }]), /plain name/);
+  assert.throws(() => t.briefing.storeAttachments("demo", screened), /already exists/, "an attachment is never replaced");
 });

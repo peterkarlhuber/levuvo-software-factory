@@ -2,8 +2,8 @@
 # Levuvo SF factory tests: unit tests of every image, then the whole stack in Docker – block 1 (Forgejo setup,
 # hardening, network isolation, restart, password reset) and block 2 (factory API, project repositories, briefing
 # screening, isolated interviewer runs with the real Claude CLI against a scripted fake model API, model gateway,
-# pause/resume, wait time, run container isolation, no API key in any agent container or log). Needs only Docker,
-# bash and curl. Optional: LEVUVO_SF_EXTRA_CA=<CA bundle> for builds behind a TLS-intercepting proxy (cloud sessions).
+# pause/resume, wait time, run container isolation, no API key in any agent container or log) and block 3 (the web
+# UI in Chromium and WebKit, driven like the owner uses it, see tests/ui/ui.mjs). Needs only Docker, bash and curl. Optional: LEVUVO_SF_EXTRA_CA=<CA bundle> for builds behind a TLS-intercepting proxy (cloud sessions).
 # Usage (from the repo root): factory/tests/run.sh
 # Runs as its own Compose project `levuvo-sf-test` (own containers, volume, networks and port 3999), so it never
 # touches the real factory `levuvo-sf`. It removes only the test project and its volume at the end.
@@ -43,6 +43,7 @@ build -t levuvo-sf/model-gateway:local "$FACTORY/model-gateway"
 build -t levuvo-sf/model-gateway:testable --target testable "$FACTORY/model-gateway"
 build -t levuvo-sf/worker:local "$FACTORY/worker"
 build -t levuvo-sf/factory:local -f "$FACTORY/api/Dockerfile" "$FACTORY/.."
+build -t levuvo-sf/ui-test:local "$FACTORY/tests/ui"
 cleanup
 dc up -d >/dev/null 2>&1 || { dc logs; echo "✗ docker compose up failed"; exit 1; }
 wait_init() { check "${1:-git-init finished without error}" "${2:-0}" "$(docker wait "$P-git-init-1")"; }
@@ -124,6 +125,8 @@ check "health" true "$(get /api/health | json 'd.ok')"
 check "wrong Host header refused (DNS rebinding)" 421 "$(status -H 'Host: evil.example' "$API/api/health")"
 check "foreign Origin refused" 403 "$(status -X POST -H 'Content-Type: application/json' -H 'Origin: https://evil.example' --data '{"name":"x"}' "$API/api/projects")"
 check "non-JSON write refused" 415 "$(status -X POST -H 'Content-Type: text/plain' --data 'name=x' "$API/api/projects")"
+check "the web UI is served with a strict CSP" "200 default-src 'none'; script-src 'self'" "$(curl -s -o /dev/null -D - "$API/" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-security-policy"{split($2,a,"; ");csp=a[1]"; "a[2]} /^HTTP/{code=$2} END{print code" "csp}')"
+check "uploaded briefing files are never served to the browser" 404 "$(status "$API/projects/e2e-main/briefing/notes.md")"
 check "default model and effort per role" "claude-opus-5-5 medium 9" "$(get /api/settings | json 'd.roles.interviewer.model+" "+d.roles.interviewer.effort+" "+Object.keys(d.roles).length')"
 check "subscription mode not available yet" 400 "$(status -X PUT -H 'Content-Type: application/json' --data '{"billing_mode":"subscription"}' "$API/api/settings")"
 
@@ -214,8 +217,7 @@ post /api/projects/e2e-pause/interview/start '{}' >/dev/null
 check "the agent asks" waiting_for_human "$(wait_iv e2e-pause waiting_for_human 120)"
 check "pause by the human" paused "$(post /api/projects/e2e-pause/interview/pause '{}' >/dev/null; wait_iv e2e-pause paused 60)"
 check "the draft is kept" drafted "$(get /api/projects/e2e-pause/interview | json 'd.prd[1].status')"
-check "an answer while paused is stored for the next run" false "$(answer e2e-pause Q-001 'Nur Mitglieder')"
-post /api/projects/e2e-pause/interview/start '{}' >/dev/null
+check "an answer while paused resumes the interview in a fresh run" "false true" "$(post /api/projects/e2e-pause/interview/answer '{"question_id":"Q-001","text":"Nur Mitglieder"}' | json 'd.delivered+" "+/^run-/.test(d.resumed)')"
 check "the resumed run ends without finishing" paused "$(sleep 2; wait_iv e2e-pause paused 120)"
 check "the fresh run got the draft and the answer" 1 "$(dc logs --no-log-prefix fake-model | grep '"project":"e2e-pause","resume":true' | grep -c '"action":"text"')"
 check "two runs, reasons paused_by_human and ended_without_finish" "paused_by_human ended_without_finish" "$(for r in $(get /api/projects/e2e-pause/interview | json 'd.log.runs.map(r=>r.run_id).join(" ")'); do get "/api/runs/$r" | json 'd.exit_reason'; done | xargs)"
@@ -228,11 +230,11 @@ check "after the wait time the run is paused" paused "$(wait_iv e2e-timeout paus
 check "reason: paused_wait_timeout" paused_wait_timeout "$(get /api/projects/e2e-timeout/interview | json 'd.last_exit_reason')"
 post /api/settings '{"ask_human_wait_minutes":10}' PUT >/dev/null
 
-echo "› web search for the interviewer: off by default, switched on with the README command"
-check "levuvo-sf web-search shows: off by default" "Interviewer web search: off" "$(dc exec -T factory levuvo-sf web-search | cut -d' ' -f1-4)"
-check "web search refused for other roles" 400 "$(status -X PUT -H 'Content-Type: application/json' --data '{"roles":{"builder":{"web_search":true}}}' "$API/api/settings")"
+echo "› web search for the interviewer: off by default, switched on per project"
+check "web search is off for a new project" false "$(get /api/projects/e2e-web | json 'd.web_search')"
+check "web search is no longer a role setting" 400 "$(status -X PUT -H 'Content-Type: application/json' --data '{"roles":{"interviewer":{"web_search":true}}}' "$API/api/settings")"
 check "the run without web search had no WebSearch tool and sent no server-side tool" "0 0" "$(grep -c '"project":"e2e-main".*WebSearch' <<< "$FAKE") $(grep -c '"project":"websearch"' <<< "$FAKE")"
-check "levuvo-sf web-search on" "Interviewer web search: on" "$(dc exec -T factory levuvo-sf web-search on | cut -d' ' -f1-4)"
+check "web search switched on for this project (the UI's switch)" true "$(post /api/projects/e2e-web '{"web_search":true}' PUT | json 'd.web_search')"
 post /api/projects/e2e-web/interview/start '{}' >/dev/null
 check "the run with web search ends" paused "$(wait_iv e2e-web paused 120)"
 WREC="$(get "/api/runs/$(get /api/projects/e2e-web/interview | json 'd.log.runs[0].run_id')")"
@@ -243,23 +245,17 @@ check "the search went through the gateway as Anthropic's server-side search, wi
 check "no script mismatch with web search" 0 "$(grep -E '"project":"(e2e-web|websearch)"' <<< "$WFAKE" | grep -c '"mismatch"')"
 check "the PRD cites the web source with its retrieval date" 1 "$(get /api/projects/e2e-web/interview/prd.md | grep -c "web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved $(date -u +%F))")"
 check "the gateway log holds no search query" 0 "$(dc logs model-gateway 2>&1 | grep -c 'Accessibility')"
-check "levuvo-sf web-search off" "Interviewer web search: off" "$(dc exec -T factory levuvo-sf web-search off | cut -d' ' -f1-4)"
+check "web search switched off again" false "$(post /api/projects/e2e-web '{"web_search":false}' PUT | json 'd.web_search')"
 
-echo "› levuvo-sf demo as the owner runs it (README step 5)"
-# answers like a person: types once each question is shown, stdin stays open until the demo has ended
-answer_demo() { # waits for each NEW question id (Q-001, then Q-002) before answering
-  local n=0
-  for a in "1, aber Buchung im Viertelstundentakt" ""; do
-    n=$((n + 1))
-    for _ in $(seq 1 90); do dc exec -T factory levuvo-sf status 2>/dev/null | grep -q "^demo-.*waiting for Q-00$n" && break; sleep 1; done
-    printf '%s\n' "$a"
-  done
-  sleep 20
-}
-out="$(answer_demo | dc exec -T factory levuvo-sf demo 2>&1 || true)"
-if grep -q "Empfehlung:" <<< "$out" && grep -q "Deine Antwort:" <<< "$out" && grep -q "^Interview finished (finished)" <<< "$out" && grep -qE "^Tokens: [1-9][0-9]* in" <<< "$out" && grep -q "## 1 Vision" <<< "$out"; then ok "demo: German labels, option plus note, finished with usage and PRD"; else bad "demo: German labels, option plus note, finished with usage and PRD ($(tail -8 <<< "$out" | tr '\n' ' '))"; fi
-if dc logs fake-model 2>/dev/null | grep '"project":"demo"' | grep -q mismatch; then bad "demo: the fake model saw what it expected"; else ok "demo: the fake model saw what it expected"; fi
-check "status lists the demo project" 1 "$(dc exec -T factory levuvo-sf status | grep -c '^demo-')"
+echo "› the web UI as the owner uses it (README step 5): Chromium desktop and WebKit phone"
+SHOTS="${LEVUVO_SF_UI_SHOTS:-$FACTORY/tests/ui/screenshots}"
+rm -rf "$SHOTS" && mkdir -p "$SHOTS"
+out="$(docker run --rm --network host -v "$SHOTS:/out" -e "BASE=http://localhost:$LEVUVO_SF_API_PORT" levuvo-sf/ui-test:local 2>&1 || true)"
+grep -E '^[✓✗] ' <<< "$out" || true
+fails=$((fails + $(grep -c '^✗ ' <<< "$out" || true)))
+grep -q '^ui: all browser checks passed' <<< "$out" && ok "browser test: all checks passed (screenshots in $SHOTS)" || { tail -5 <<< "$out"; bad "browser test: all checks passed"; }
+if dc logs fake-model 2>/dev/null | grep -E '"project":"ui(-resume)?"' | grep -q mismatch; then bad "ui: the fake model saw what it expected"; else ok "ui: the fake model saw what it expected"; fi
+for b in chromium webkit; do check "ui: the deleted project's repository is gone ($b)" 404 "$(admin -o /dev/null -w '%{http_code}' "$GIT/api/v1/repos/levuvo-sf/e2e-ui-$b")"; done
 
 echo "› the API key appears nowhere else"
 if dc logs 2>&1 | grep -qF "$TEST_KEY"; then bad "the API key is in no container log"; else ok "the API key is in no container log"; fi

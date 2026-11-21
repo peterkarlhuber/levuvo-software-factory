@@ -8,9 +8,9 @@
 //   unreadable with the reason, and the interviewer asks the human about it (GA1.5).
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { readJson, writeAtomic, writeJson } from "./store.mjs";
 
 export const MAX_FILE = 20 * 1024 * 1024;
@@ -75,8 +75,9 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
     return next;
   }
 
-  /** Stores one file (new or replaced). Returns the inventory entry; throws `{status, message}` errors for the API. */
-  async function put(slug, rawPath, buf) {
+  /** Checks one file without storing it: path, size, type, content and secret scan. Returns `{path, entry}`; throws
+   * `{status, message}` errors for the API. */
+  async function screen(rawPath, buf) {
     const path = briefingPath(rawPath);
     if (!path) throw httpError(400, "invalid file path (plain names, at most 5 folders, no hidden files or ..)");
     if (buf.length === 0) throw httpError(400, "the file is empty");
@@ -98,24 +99,57 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
       scanner = "none (not a text file)";
       reason = `format ${type} cannot be read by agents yet`;
     }
-    const entry = {
+    return {
       path, media_type: type, size_bytes: buf.length, sha256: createHash("sha256").update(buf).digest("hex"), readable,
       ...(reason ? { unreadable_reason: reason } : {}),
       secret_scan: { status: scanStatus, ...(scanner ? { scanner } : {}), scanned_at: now }, added_via: "upload",
     };
+  }
+
+  /** Stores one uploaded file (new or replaced). Answer attachments (`briefing/answers/…`) cannot be replaced or
+   * created here (scope review finding 3). */
+  async function put(slug, rawPath, buf) {
+    if (isAnswerPath(briefingPath(rawPath))) throw httpError(403, "files under briefing/answers/ belong to an answer and cannot be changed");
+    const entry = await screen(rawPath, buf);
     const inv = inventory(slug);
-    const old = inv.files.find((f) => f.path === path);
+    const old = inv.files.find((f) => f.path === entry.path);
     if (old?.sha256 === entry.sha256) return { entry: old, inventory: inv, changed: false };
     if (old?.tags) entry.tags = old.tags;
-    const file = `${dir(slug)}/${path}`;
-    mkdirSync(dirname(file), { recursive: true });
-    writeAtomic(file, buf);
-    const files = inv.files.filter((f) => f.path !== path).concat(entry).sort((a, b) => a.path.localeCompare(b.path));
+    writeAtomic(`${dir(slug)}/${entry.path}`, buf);
+    const files = inv.files.filter((f) => f.path !== entry.path).concat(entry).sort((a, b) => a.path.localeCompare(b.path));
     return { entry, inventory: saveInventory(slug, { ...inv, files }, true), changed: true };
+  }
+
+  /** Answer attachments (G2.5, GA2.3): all are screened first; a blocked or invalid file refuses the whole answer and
+   * nothing is stored. Stored under briefing/answers/<question id>/, never replaced, added to the inventory with
+   * `added_via: answer`. Returns the stored entries. */
+  async function screenAttachments(questionId, files) {
+    if (!Array.isArray(files) || files.length > 10) throw httpError(400, "attachments must be a list of at most 10 files");
+    const out = [];
+    for (const f of files) {
+      if (typeof f?.name !== "string" || typeof f?.content_base64 !== "string" || f.name.includes("/")) throw httpError(400, "each attachment needs a plain name and content_base64");
+      const buf = Buffer.from(f.content_base64, "base64");
+      const entry = await screen(`answers/${questionId}/${f.name}`, buf);
+      if (entry.secret_scan.status === "blocked") throw httpError(422, `${f.name}: ${entry.unreadable_reason}`);
+      if (out.some((o) => o.entry.path === entry.path)) throw httpError(400, `${f.name} is attached twice`);
+      out.push({ entry: { ...entry, added_via: "answer", answer_ref: questionId }, buf });
+    }
+    return out;
+  }
+  function storeAttachments(slug, screened) {
+    if (!screened.length) return inventory(slug);
+    const inv = inventory(slug);
+    for (const { entry } of screened) if (inv.files.some((x) => x.path === entry.path)) throw httpError(409, `${entry.path} already exists`);
+    const files = inv.files.concat(screened.map((s) => s.entry)).sort((a, b) => a.path.localeCompare(b.path));
+    const err = validator.check("inventory", { ...inv, files });
+    if (err) throw new Error(`inventory invalid: ${err}`); // checked before any file is written
+    for (const { entry, buf } of screened) writeAtomic(`${dir(slug)}/${entry.path}`, buf);
+    return saveInventory(slug, { ...inv, files }, true);
   }
 
   function remove(slug, rawPath) {
     const path = briefingPath(rawPath);
+    if (isAnswerPath(path)) throw httpError(403, "files under briefing/answers/ belong to an answer and cannot be deleted");
     const inv = inventory(slug);
     if (!path || !inv.files.some((f) => f.path === path)) throw httpError(404, "no such briefing file");
     try { unlinkSync(`${dir(slug)}/${path}`); } catch { /* already gone */ }
@@ -144,8 +178,11 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
     return null;
   }
 
-  return { put, remove, inventory, readForAgent, tag };
+  return { put, remove, inventory, readForAgent, tag, screenAttachments, storeAttachments };
 }
+
+/** Answer attachments live under briefing/answers/ and are bound to their answer. */
+export const isAnswerPath = (path) => typeof path === "string" && path.startsWith("briefing/answers/");
 
 export function httpError(status, message) {
   return Object.assign(new Error(message), { status });

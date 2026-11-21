@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,16 +70,18 @@ test("settings: defaults for all nine roles, validation, persistence", () => {
   const s = createSettings(file);
   s.update({ ask_human_wait_minutes: 3, human_language: "en" });
   assert.equal(createSettings(file).get().ask_human_wait_minutes, 3);
-  assert.equal(createSettings(file).get().roles.interviewer.web_search, false, "an older settings file gets the default: off");
 });
 
-test("settings: web search is off by default and only the interviewer may have it (scope review finding 2)", () => {
-  const d = defaults();
-  assert.ok(Object.values(d.roles).every((r) => r.web_search === false));
-  assert.equal(merge(d, { roles: { interviewer: { web_search: true } } }).roles.interviewer.web_search, true);
-  assert.equal(merge(d, { roles: { reviewer: { web_search: false } } }).roles.reviewer.web_search, false);
-  assert.throws(() => merge(d, { roles: { builder: { web_search: true } } }), /only available for: interviewer/);
-  assert.throws(() => merge(d, { roles: { interviewer: { web_search: "on" } } }), /true or false/);
+test("settings: the block 2 role-level web search is dropped on load, never accepted again (block 3 scope finding 6)", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "set-")), "settings.json");
+  writeFileSync(file, JSON.stringify({ roles: { interviewer: { model: "claude-opus-5-5", effort: "high", web_search: true }, builder: { web_search: false } }, human_language: "en" }));
+  const s = createSettings(file);
+  assert.equal(s.get().roles.interviewer.effort, "high", "the rest of an old settings file is kept");
+  assert.equal(s.get().roles.interviewer.web_search, undefined);
+  assert.ok(Object.values(defaults().roles).every((r) => !("web_search" in r)));
+  assert.throws(() => merge(defaults(), { roles: { interviewer: { web_search: true } } }), /unknown role setting web_search/);
+  s.update({ human_language: "de" });
+  assert.ok(!readFileSync(file, "utf8").includes("web_search"), "the next save drops it from the file");
 });
 
 test("usage: cache tokens priced, incomplete calls make the cost a lower bound, errors bill nothing", () => {

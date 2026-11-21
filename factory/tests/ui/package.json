@@ -1,0 +1,10 @@
+{
+  "name": "levuvo-sf-ui-test",
+  "private": true,
+  "description": "Browser test of the Levuvo SF web UI (Chromium and WebKit), run by factory/tests/run.sh",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

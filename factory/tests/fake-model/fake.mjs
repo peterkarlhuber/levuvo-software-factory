@@ -59,20 +59,25 @@ const SCRIPTS = {
     () => ["ask_human", { finding: "Gäste werden erwähnt.", decision_needed: "Nur Mitglieder buchen?", recommendation: rec, prd_sections: [3] }],
     () => "paused?",
   ],
-  // `levuvo-sf demo` as the owner runs it, to the end (regressions: first POST without a body was refused; the summary
-  // was read before the run had ended; "1, aber …" must arrive as option plus note)
-  demo: [
+  // the web UI as the owner uses it (tests/ui/ui.mjs, one project per browser): a hostile text in a draft and a question,
+  // an answer as option plus note, a question without options answered with an attachment after a pause (the answer
+  // resumes the interview), then the resumed run below finishes
+  ui: [
     () => ["read_briefing", {}],
-    () => ["ask_human", { finding: "Das Briefing beschreibt eine Platzbuchung.", decision_needed: "Passt alles so?", options: [{ label: "Ja", consequences: "so übernehmen" }, { label: "Nein", consequences: "ändern" }], recommendation: { option: 0, answer: "Ja", reason: "passt zum Briefing" }, prd_sections: PRD_ALL }],
-    ...PRD_ALL.map((s) => (h) => {
-      const r = h.filter((x) => x.name === "ask_human").at(-1)?.text ?? "";
-      if (s === 1 && !(/"chosen_option": 0/.test(r) && /Viertelstunde/.test(r))) return mismatch(`demo answer must be option 1 plus the note: ${r}`);
-      return ["update_prd_section", { section: s, status: "confirmed", content: `Section ${s}.`, source: "briefing/idea.md; answer Q-001", answer_ref: "Q-001" }];
-    }),
+    (h) => (h.at(-1).text.includes("briefing/idea.md") ? ["read_briefing", { path: "briefing/idea.md" }] : mismatch("inventory lists idea.md")),
+    (h) => (h.at(-1).text.includes("Tennisclub") ? ["update_prd_section", { section: 1, status: "drafted", content: "Court booking <img src=x onerror=\"window.__xss=1\"> for members.", source: "briefing/idea.md" }] : mismatch("idea.md content")),
+    () => ["ask_human", { finding: "Das Briefing nennt Gäste <img src=x onerror=\"window.__xss=1\">.", decision_needed: "Passt alles so?", options: [{ label: "Ja", consequences: "so übernehmen" }, { label: "Nein", consequences: "ändern" }], recommendation: { option: 0, answer: "Ja", reason: "passt zum Briefing" }, prd_sections: PRD_ALL }],
+    (h) => (/"chosen_option": 0/.test(h.at(-1).text) && /Viertelstunde/.test(h.at(-1).text) ? ["ask_human", { finding: "Die Papierliste wäre hilfreich.", decision_needed: "Hast du ein Foto oder eine Abschrift der Papierliste?", recommendation: { answer: "Ich hänge sie an", reason: "ein Anhang ist am einfachsten" } }] : mismatch(`the answer must be option 1 plus the note: ${h.at(-1).text}`)),
+    () => "waiting for the pause",
+  ],
+  "ui-resume": [
+    (h) => ["read_briefing", { path: "briefing/answers/Q-002/liste.md" }],
+    (h) => (h.at(-1).text.includes("Platz 1") ? ["update_prd_section", { section: 2, status: "confirmed", content: "Paper list in the clubhouse.", source: "attachment briefing/answers/Q-002/liste.md; answer Q-001", answer_ref: "Q-001" }] : mismatch(`attachment content: ${h.at(-1).text.slice(0, 200)}`)),
+    ...PRD_ALL.filter((s) => s !== 2).map((s) => (h) => (h.at(-1).isError ? mismatch(`section update failed: ${h.at(-1).text}`) : ["update_prd_section", { section: s, status: "confirmed", content: `Section ${s}.`, source: "briefing/idea.md; answer Q-001", answer_ref: "Q-001" }])),
     (h) => (h.at(-1).isError ? mismatch(`section update failed: ${h.at(-1).text}`) : ["update_features", { features: [{ name: "Book a court", summary: "Members book a court.", priority: "must", depends_on: [], scope_ref: "Booking", source: "briefing/idea.md" }] }]),
-    () => ["ask_human", { finding: "Alles ist erfasst.", decision_needed: "Interview beenden?", recommendation: rec, closing: true }],
-    () => ["finish_interview", { summary: "Demo." }],
-    (h) => (h.at(-1).isError ? mismatch(`finish refused: ${h.at(-1).text}`) : "demo done"),
+    () => ["ask_human", { finding: "Alles ist erfasst.", decision_needed: "Interview beenden?", recommendation: { answer: "Ja, beenden", reason: "alle Abschnitte sind bestätigt" }, closing: true }],
+    () => ["finish_interview", { summary: "Tennis club court booking." }],
+    (h) => (h.at(-1).isError ? mismatch(`finish refused: ${h.at(-1).text}`) : "ui done"),
   ],
   // web search switched on by the owner: the CLI's WebSearch makes its own model call with Anthropic's server-side
   // search tool (answered below as `websearch`), and the result may be cited as a web source (scope review finding 4)
@@ -146,14 +151,16 @@ createServer((req, res) => {
       return replySearch(res, j.model);
     }
     const start = firstUserText(j.messages);
-    const found = /\((e2e-[a-z]+|demo-\d+)\)/.exec(start)?.[1] ?? "unknown";
-    const project = found.startsWith("demo-") ? "demo" : found;
+    const found = /\((e2e-[a-z-]+)\)/.exec(start)?.[1] ?? "unknown";
     const resume = /mode: resume/.test(start);
+    const project = found.startsWith("e2e-ui-") ? (resume ? "ui-resume" : "ui") : found;
     const h = history(j.messages);
     const tools = (j.tools ?? []).map((t) => t.name).sort();
     const sys = JSON.stringify(j.system ?? "");
     let step;
-    if (project === "e2e-pause" && resume) {
+    if (project === "ui-resume" && h.length === 0 && !/attachments: briefing\/answers\/Q-002\/liste\.md/.test(start)) {
+      step = mismatch("resume prompt lacks the attachment");
+    } else if (project === "e2e-pause" && resume) {
       step = /Nur Mitglieder buchen\? → answer: Nur Mitglieder/.test(start) && /### 1 Vision – drafted/.test(start) ? "resumed with the answer" : mismatch("resume prompt lacks the answer or the draft");
     } else {
       const script = SCRIPTS[project] ?? [() => "unknown project"];
