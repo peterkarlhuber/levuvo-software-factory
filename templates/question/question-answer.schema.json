@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:question-answer:0.1",
+  "title": "Levuvo SF question and answer (R2, G2.1, G2.3, G2.5)",
+  "description": "One message in the fixed R2 format (question, change request, escalation or failure report) and the human's answer. Used by ask_human and stop_with_question.",
+  "type": "object",
+  "required": [
+    "question"
+  ],
+  "properties": {
+    "question": {
+      "$ref": "#/$defs/question"
+    },
+    "answer": {
+      "$ref": "#/$defs/answer"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "question": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "step",
+        "run_id",
+        "language",
+        "finding",
+        "decision_needed",
+        "recommendation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Set by the factory."
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "change_request",
+            "escalation",
+            "failure_report"
+          ]
+        },
+        "step": {
+          "type": "string",
+          "pattern": "^[A-C][0-9]+$",
+          "description": "Workflow step, e.g. A2."
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "description": "BCP 47 tag of the language shown to the human, e.g. de."
+        },
+        "finding": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the agent found."
+        },
+        "decision_needed": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The one decision the human makes."
+        },
+        "options": {
+          "type": "array",
+          "description": "Valid options only, usually 2-3, never invented to fill a count. May be empty for an open question.",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "consequences"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "consequences": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "recommendation": {
+          "type": "object",
+          "required": [
+            "answer",
+            "reason"
+          ],
+          "properties": {
+            "option": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Index into options, if the recommendation is one of them."
+            },
+            "answer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "refs": {
+          "type": "array",
+          "description": "Affected artifacts, e.g. PRD section 7, ADR 0002, briefing/notes.md.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "asked_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Set by the factory."
+        }
+      },
+      "additionalProperties": false
+    },
+    "answer": {
+      "type": "object",
+      "required": [
+        "text",
+        "answered_by",
+        "answered_at"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "May be empty when attachments carry the answer."
+        },
+        "chosen_option": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attachments": {
+          "type": "array",
+          "description": "Stored, scanned and added to the inventory by the factory before the agent sees them (G2.5).",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "answered_by": {
+          "type": "string"
+        },
+        "answered_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "description": "An answer needs text or at least one attachment. The factory checks that chosen_option exists in the question; ids, run ids and timestamps are set by the factory only.",
+      "anyOf": [
+        {
+          "properties": {
+            "text": {
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "attachments"
+          ],
+          "properties": {
+            "attachments": {
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "attachment": {
+      "type": "object",
+      "required": [
+        "path",
+        "media_type",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^briefing/",
+          "description": "Path in the project repo.",
+          "not": {
+            "pattern": "(^|/)\\.\\.(/|$)"
+          }
+        },
+        "media_type": {
+          "type": "string",
+          "description": "IANA media type."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

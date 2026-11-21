@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:design-tokens:0.1",
+  "title": "Levuvo SF design tokens – preliminary structural check (A4, DTCG Format Module 2025.10)",
+  "description": "docs/design-tokens.tokens.json. Preliminary structural check only; it is not a DTCG validator. The factory additionally validates types and values, aliases and reference resolution, $root tokens, group extensions and reserved properties against DTCG Format Module 2025.10. Passing this schema alone does not establish DTCG compliance.",
+  "$ref": "#/$defs/group",
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[^${}.][^{}.]*$"
+    },
+    "type": {
+      "enum": [
+        "color",
+        "dimension",
+        "fontFamily",
+        "fontWeight",
+        "duration",
+        "cubicBezier",
+        "number",
+        "strokeStyle",
+        "border",
+        "transition",
+        "shadow",
+        "gradient",
+        "typography"
+      ]
+    },
+    "alias": {
+      "type": "string",
+      "pattern": "^\\{[^{}]+\\}$"
+    },
+    "token": {
+      "type": "object",
+      "required": [
+        "$value"
+      ],
+      "properties": {
+        "$value": {},
+        "$type": {
+          "$ref": "#/$defs/type"
+        },
+        "$description": {
+          "type": "string"
+        },
+        "$deprecated": {
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "$extensions": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "group": {
+      "type": "object",
+      "not": {
+        "required": [
+          "$value"
+        ]
+      },
+      "properties": {
+        "$type": {
+          "$ref": "#/$defs/type"
+        },
+        "$description": {
+          "type": "string"
+        },
+        "$deprecated": {
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "$extensions": {
+          "type": "object"
+        }
+      },
+      "patternProperties": {
+        "^\\$": {},
+        "^[^$]": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/token"
+            },
+            {
+              "$ref": "#/$defs/group"
+            }
+          ]
+        }
+      },
+      "propertyNames": {
+        "anyOf": [
+          {
+            "pattern": "^\\$"
+          },
+          {
+            "$ref": "#/$defs/name"
+          }
+        ]
+      }
+    }
+  }
+}

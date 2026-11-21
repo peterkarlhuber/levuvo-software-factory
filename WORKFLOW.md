@@ -1,6 +1,6 @@
 # Levuvo SF Workflow
 
-Status: draft v0.1.1 · 2026-11-20 · Part A specified, parts B and C planned
+Status: draft v0.1.2 · 2026-11-21 · Part A specified, parts B and C planned
 
 > This document specifies the intended behavior of the factory. During the concept phase, guards are requirements, not yet implemented or verified controls.
 
@@ -50,12 +50,12 @@ An interview agent reads the whole briefing and clarifies only the gaps with the
 
 Flow: read all readable inventory files → draft every PRD section the briefing already answers (with source) → ask one question at a time with a recommended answer, updating the PRD live → as soon as the scope (PRD section 7) is drafted, derive the feature list live as well, and keep it in sync with later answers (each feature inside the scope; MoSCoW priority as a preliminary classification and dependencies, proposed by the agent, confirmed by the human; the actual work order is decided later) → end when every section is confirmed or listed under "Open questions" by the human.
 
-- Templates: interview log (JSON: question, recommendation, answer, time). The PRD sections (A3) serve as the coverage checklist; each section has a status (open / drafted / confirmed) and a source.
+- Templates: interview log (JSON: question, recommendation, answer, attachments, time). The PRD sections (A3) serve as the coverage checklist; each section has a status (open / drafted / confirmed) and a source.
 - Guards:
   - GA2.1 [Enforced] The interview can finish only when every required PRD section is confirmed or explicitly deferred to Open questions by the human, and the initial feature list is non-empty. A merely drafted section is not sufficient.
   - GA2.2 [Enforced] The interview agent cannot write to the repo directly; it delivers PRD section drafts as structured output, the factory writes PRD and log.
-  - GA2.3 [Enforced] The log records the inventory version read; any change to the briefing inventory (added, changed or deleted files) marks the interview as outdated.
-  - GA2.4 [Verified] Every drafted or confirmed section has a source (briefing file or human answer).
+  - GA2.3 [Enforced] The log records the inventory version read; any change to the briefing inventory (added, changed or deleted files) marks the interview as outdated. Exception: files the human attaches to an interview answer (G2.5) are added to the inventory and read at once; they do not mark the interview as outdated.
+  - GA2.4 [Verified] Every drafted or confirmed section has a source (briefing file, human answer or attachment).
 
 ### A3 – PRD and feature list
 The human reviews and approves the PRD (stable, changes rarely) and the initial feature list (living, changes often) together.
@@ -72,7 +72,7 @@ The human reviews and approves the PRD (stable, changes rarely) and the initial 
   - GA3.5 [Enforced] Feature statuses are set only by the factory's state machine.
 
 ### A4 – Design
-Based on the approved PRD, the basic technical decisions are made before the first feature is built. Attended session like A2: the agent proposes with a recommendation; the human decides only product-relevant points.
+Based on the approved PRD, the basic technical decisions are made before the first feature is built. Attended session like A2: the agent proposes with a recommendation; the human decides only product-relevant points. Answers may carry attachments (G2.5), e.g. further design references.
 
 Topics: 1 stack (language, framework, database, login, tests, hosting), 2 architecture (building blocks and how they interact), 3 data model, 4 design system (colors, fonts, spacing, components), 5 own dependencies (own repos: other factory projects or GitHub repos).
 
@@ -110,5 +110,6 @@ Flow: scaffold on a feature branch with the stack's official generator + one pas
 ---
 
 ## Change log
+- 0.1.2 (2026-11-21): Answers with attachments in A2/A4/A5 (G2.5); GA2.3 exception for attachments; interview log records attachments.
 - 0.1.1 (2026-11-20): Pre-commit review: A5 uses the normal PR/review/approval path; attended interviews; precise guards for A1–A4; SemVer by compatibility; standards named precisely; not-applicable artifacts.
 - 0.1 (2026-11-20): Part A (A0–A5) specified.
