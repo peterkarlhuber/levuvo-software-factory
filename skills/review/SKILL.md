@@ -26,8 +26,8 @@ You do not get the builder's conversation or reasoning, on purpose.
 1. **Spec:** every requirement and criterion, including superseded criteria of other features (GB1.6), is really implemented, including edge cases, not just made to pass a test (tests that assert nothing, hard-coded results, special cases for test data).
 2. **Beyond spec:** behaviour, options or endpoints the spec does not ask for; compare with the deviations in the build report (GB3.4).
 3. **Architecture:** fits the building blocks and ADRs; a significant new decision has an ADR.
-4. **Security:** input validation, injection, authentication and authorization, secrets in code or logs, unsafe dependencies.
-5. **Maintainability:** readable, consistent with the codebase, no dead or duplicated code that matters.
+4. **Security:** input validation, injection, authentication and authorization, secrets in code or logs, unsafe dependencies; licenses of new dependencies (V1: this replaces the license gate).
+5. **Maintainability:** readable, consistent with the codebase, no dead or duplicated code that matters. For UI changes also accessibility (roles, labels, contrast, keyboard use) against the design system's target (V1: this replaces the accessibility gate).
 6. **Docs:** README, usage, API description and ADRs updated by the docs task.
 7. **Hidden scenarios:** if a hidden test checks more than its criterion or looks wrong, or already passed on `main` without really covering its criterion (GB2.4), report it (category `hidden-scenario`) instead of blaming the code. These findings go to the scenario agent, not the builder.
 8. **Lessons learned:** a disregarded applicable lesson is a finding (category `lesson`, lesson ID in `refs`, GC3.5). Lessons are advice (R9): the finding is `blocking` only if the change also breaks an approved requirement, a mandatory quality rule or another binding decision; otherwise `important`.

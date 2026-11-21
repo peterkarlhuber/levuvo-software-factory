@@ -53,7 +53,7 @@ The factory sets the mode. There is no plan: the paths the report names as affec
 4. Add the lesson via `add_lesson` (GC3.2): the root cause (why the mistake happened, not the symptom), what the fix changed, the prevention as advice for the next agent, the paths and modules it applies to. If a lesson you were given has the same cause, link it in `same_as`; you are not expected to know lessons you were not given; the reviewer checks against all lessons (GC3.6). The factory writes the entry into `docs/LESSONS-LEARNED.md` (GC3.3 does not apply to it, and it is no licence to touch other files).
 5. Steps 4–5 of the procedure above, with the report ID in the build report.
 
-If the cause is in an own library: write and commit the regression test against the currently pinned version (red), then call `await_dependency`, which ends your run; the factory commits the version update to the library's fixed release (GA4.7) once it is published and resumes you. Verify the test is now green and add the lesson. Never modify the library or `docs/DEPENDENCIES.json` yourself, and do not patch around the library.
+*Later (not in V1):* if the cause is in an own library: write and commit the regression test against the currently pinned version (red), then call `await_dependency`, which ends your run; the factory commits the version update to the library's fixed release (GA4.7) once it is published and resumes you. Verify the test is now green and add the lesson. Never modify the library or `docs/DEPENDENCIES.json` yourself, and do not patch around the library.
 
 **Change mode.** The confirmed spec delta is already a new spec version. Work test-first exactly as in B3 for the changed criteria only, update the docs, then steps 4–5. No lesson is needed.
 
