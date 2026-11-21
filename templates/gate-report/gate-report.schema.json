@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:gate-report:0.1",
+  "$id": "urn:levuvo:sf:schema:gate-report:0.2",
   "title": "Levuvo SF gate report (B4, GB4.1-GB4.3, R5)",
   "description": "Written by the factory only, from its own gate runs (JUnit XML for tests, SARIF for findings). Bound to commit, spec version, scenario-set version and gate-policy version; any change makes it outdated (G5.2). The complete report is factory-internal. The builder gets a separate factory-generated view: per failed AC only the AC ID and a sanitized description of the failed behaviour; hidden test IDs, code, paths, fixtures, data and raw traces never appear in it (GB2.3). Every gate comes from the active gate policy and is derived from a DoD item (G4.2).",
   "type": "object",
   "required": ["feature_id", "commit", "main_commit", "spec_version", "scenario_set_version", "gate_policy_version", "round", "created_at", "gates", "acceptance_criteria"],
   "properties": {
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "report_id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: the bug report this run belongs to (C3); feature_id and spec_version are then the affected feature and its current spec version." },
     "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "PR head commit." },
     "main_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "main the PR was merged onto for the check (G5.4)." },
     "spec_version": { "type": "integer", "minimum": 1 },

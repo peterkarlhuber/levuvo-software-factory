@@ -1,16 +1,16 @@
 # Levuvo SF Workflow
 
-Status: draft v0.2.0 · 2026-11-21 · Parts A and B specified, part C planned
+Status: draft v0.3.2 · 2026-11-21 · Parts A, B and C specified
 
 > This document specifies the intended behavior of the factory. During the concept phase, guards are requirements, not yet implemented or verified controls.
 
 ## Overview
 - **A. New project (once):** A0 create project → A1 briefing → A2 interview → A3 PRD + feature list → A4 design → A5 skeleton
 - **B. Feature (per feature):** B1 spec → B2 plan + hidden scenarios → B3 test-first build + PR → B4 gates → B5 independent review → B6 docs + Definition of Done → B7 acceptance package, human authorizes merge, release version by SemVer
-- **C. Bug (per bug, planned):** C1 report → C2 bug report → C3 classify (human decides) → C4 failing test + fix → C5 gates → C6 review → C7 docs + DoD → C8 acceptance package → human authorizes merge → release version by SemVer compatibility impact
-- **Later:** backlog/prioritization, hotfix path, deployment/rollback/monitoring, process metrics.
+- **C. Bug or change (per report):** C1/C2 triage: report, reproduce, classify as Bug / Change / New feature (human decides) → C3 fix: red regression test first and smallest fix (Bug), or test-first build of the changed criteria (Change) → then B4 gates → B5 review → B6 docs + DoD → B7 acceptance package, human authorizes merge, release version by SemVer
+- **Later:** backlog/prioritization, hotfix and security-vulnerability path, deployment/rollback/monitoring, process metrics.
 
-Human decision points in part A: approve PRD + feature list (A3), product-relevant ADRs (A4), DoR/DoD (A5). In part B the human decides twice per feature: approve the spec (B1) and authorize the merge (B7). Questions an agent cannot answer itself (R2) come on top.
+Human decision points in part A: approve PRD + feature list (A3), product-relevant ADRs (A4), DoR/DoD (A5). In part B the human decides twice per feature: approve the spec (B1) and authorize the merge (B7). In part C the human decides twice per report: the category (C2) and the merge (B7). Questions an agent cannot answer itself (R2) come on top.
 
 The playbook ([PLAYBOOK.md](PLAYBOOK.md)) holds the rules that apply everywhere. This document describes each workflow step: purpose, input, output, templates and the step-specific guards. Guard marks: [Enforced], [Verified], [Instructed] (see playbook). Standards are named here without versions; the pinned versions are in the playbook's standards table (R10).
 
@@ -186,7 +186,7 @@ After all gates are green, a reviewer agent with its own identity checks what ga
   - GB5.4 [Verified] Before review findings reach the builder, the factory checks them for hidden-scenario details (G3.3).
 
 ### B6 – Docs and Definition of Done
-No agent. Docs were written by the builder in B3 (plan task) and checked by the reviewer in B5. The factory checks the DoD (A5): automated items from the gate report, review items from the review report; human items are listed in the acceptance package. It generates the changelog entry from the commits, proposes the next version and adds both as a factory commit to the PR before the acceptance package is built; the gates run on that commit, so the human approves exactly this diff (B7).
+No agent. Docs were written by the builder in B3 (plan task) and checked by the reviewer in B5. The factory checks the DoD (A5): automated items from the gate report, review items from the review report; human items are listed in the acceptance package. It generates the changelog entry from the commits, proposes the next version and adds both as a factory commit to the PR before the acceptance package is built; the gates run on that commit, so the human approves exactly this diff (B7). The factory commit may contain only factory-managed files (changelog, version; in part C also report and lessons learned); the factory checks this, so the review of the previous commit stays valid (no reviewed content changed, G5.4).
 
 - Standards: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), SemVer. Version proposal: commits are the input (breaking change → major, `feat` → minor, otherwise patch; below 1.0.0 a breaking change is minor); for APIs the factory also compares the old and new contract and a detected breaking change overrides the commit types. The human confirms the version at acceptance.
 - Guards:
@@ -208,7 +208,80 @@ No agent. The factory generates the acceptance package; the human decides. This 
 
 ---
 
+## C. Bug or change (per report)
+
+The human reports a problem in their own words. One triage run turns it into a report and proposes exactly one of three categories; the human decides. A Bug or a Change is then fixed in C3 and goes through B4–B7 exactly like a feature. The human decides twice per report: the category (C2) and the merge (B7).
+
+Every report lives in the project repo, versioned: `bugs/<ID>/REPORT.md` (rendered from structured output), `bugs/<ID>/attachments/`. IDs (`BUG-001`) are permanent and never reused. The factory's state machine sets the report status: `triage` (C1/C2) → `decided` → `in_progress` (C3, B4–B6) → `in_acceptance` (B7) → `done`, or `closed` (duplicate, handed over as a new feature, or closed by the human). The affected feature stays `done`, bound to its last released spec version. A Change creates an approved *pending* spec version for C3; it becomes the released baseline only with the authorized merge. If the category decision is superseded (e.g. after a B7 rejection), the factory supersedes the pending version and voids the results bound to it.
+
+**Categories** (exactly three are shown to the human):
+- **Bug** – the code deviates from the approved spec: a named acceptance criterion is violated.
+- **Change** – small, the spec itself changes. The agent proposes a concrete spec delta (add, modify or remove an acceptance criterion or requirement). One decision confirms category and delta; the factory then creates the new spec version itself (G1.3, G2.4). A change to the design system as a whole, an approved ADR or the PRD goes through A4 or a PRD revision instead.
+- **New feature** – a new capability: it goes to the feature list and through B1.
+
+**Handled in the background, not categories:** not reproducible → the agent asks follow-up questions; if it stays not reproducible, the report stays in `triage` until the human adds information or closes it. Duplicate → the agent names the earlier report, the factory links and closes this one. Works as specified → it is a Change or a New feature. Cause in an own library → still a Bug; it is fixed in the library's project (GA4.6), and in C3 here the factory updates the pinned version to the library's fixed release (GA4.7); the builder adds the regression test and the lesson.
+
+### C1/C2 – Triage
+Attended session like A2. Report (C1) and classification (C2) are one run, because the agent needs the reproduction to classify.
+
+Flow: the human describes the problem in their own words, with attachments if they like → the factory stores the message unchanged and the attachments (G2.5) under `bugs/<ID>/` → the triage agent reads the affected spec, design system, architecture, earlier reports and matching lessons learned → reproduces the problem on current `main` in its container (starts the app with the A5 `dev` command, follows the steps) → asks only what is missing (steps, expected behaviour, environment), one question per round with a recommended answer → writes the report → presents one category with reason and recommendation (for a Change the spec delta) → the human decides; they may pick another category and add a comment. The factory validates the prerequisites of the *chosen* category, not only of the proposal (GC1.3, GC1.6); if information is missing (e.g. the human picks Bug but no criterion is named or nothing was reproduced), triage continues until the decision is complete.
+
+After the decision: **Bug** → C3 in bug mode. **Change** → the factory creates the new spec version from the confirmed delta, then C3 in change mode. **New feature** → the factory adds it to the feature list as `approved` if it fits the PRD scope (GA3.4; otherwise a PRD revision first), links the report and closes it; it is specified in B1 when picked.
+
+- Triage ends with one outcome: *decision required* (the three categories are shown), *not reproduced* (the report stays in `triage`) or *duplicate* (linked and closed); only the first creates a category decision.
+- Output: `bugs/<ID>/REPORT.md` + attachments; question log.
+- Templates: bug report (fields based on IEEE 1044: title, original message, steps to reproduce, expected vs actual, environment, attachments, affected feature + acceptance criteria + paths, reproduction result, classification, decision), interview log for the questions.
+- Guards:
+  - GC1.1 [Enforced] The factory stores the original message unchanged with its hash; the agent cannot write it.
+  - GC1.2 [Enforced] Attachments go through G2.5 (stored under `bugs/<ID>/attachments/`, secret scan, inventory) before the agent can read them.
+  - GC1.3 [Enforced] A Bug proposal or decision must name the affected feature, its spec version, at least one acceptance criterion it violates and a `reproduced` result; otherwise the factory rejects it. Behaviour no criterion covers is a Change or a New feature.
+  - GC1.4 [Enforced] The agent only reproduces: read-only checkout of `main`, the app runs on a throwaway copy inside its container, results leave the container only through tools; no git, no push.
+  - GC1.5 [Enforced] Only the human sets the category; the agent's proposal never changes a status (R3, G11.1).
+  - GC1.6 [Enforced] A Change decision requires a spec delta shown to the human and binds exactly that delta. Before the decision is offered, the factory validates the resulting complete spec against GB1.2, GB1.4 and GB1.5; the decision approves exactly the validated revision, and the factory publishes it (G1.3, G2.4). If validation fails, the delta is corrected first; a different delta needs a new decision.
+
+### C3 – Fix
+Unattended. Before the build, the scenario agent runs once (B2 light, separate run, spec plus report only). It writes only new tests and never reads the existing ones; the factory assembles, versions and validates the complete resulting scenario set (GB2.1–GB2.5):
+- **Bug:** it writes one hidden test that reproduces the report through the violated acceptance criterion (AC ID and BUG ID in the title). The factory runs it on `main`: it must fail at its assertion, which is the independent reproduction. A test that passes or errors goes back to the scenario agent; if it still cannot reproduce the bug, the factory asks the human.
+- **Change:** it writes tests only for added and modified criteria. The factory drops the tests of modified and removed criteria and carries all other tests over unchanged.
+
+Then the builder (B3 skill, bug or change mode) works on its own branch `fix/<ID>`. There is no planner run: the paths the report names as affected are the impact, and the work is one task plus docs where user-facing docs are affected.
+- **Bug mode:** read the report, the violated criterion and the matching lessons → write a visible regression test (BUG ID and AC ID in its name), see it fail at its assertion, commit (`test(BUG-001): …`) → the smallest fix that makes it green, no side refactorings, commit (`fix(BUG-001): …`) → add a lessons-learned entry (cause, fix, prevention; link an earlier lesson with the same cause) → build report.
+- **Change mode:** test-first for the changed criteria exactly as B3, docs, build report.
+- **Library cause:** the builder first writes and commits the regression test against the currently pinned version (red, GC3.1). Then the factory commits the version update in `docs/DEPENDENCIES.json` to the library's fixed release (GA4.7); the builder verifies that the test is now green and adds the lesson. No library source is changed here. Without a fixed release the report waits.
+
+Then B4–B7 as for a feature, with these differences:
+- **B4:** gate report carries the report ID; the hidden tests include the new bug test; regression tests of earlier bugs run as normal visible tests.
+- **B5:** review in feature mode with the report in place of the plan. Bug: the regression test really reproduces the reported behaviour, the fix addresses the cause and nothing else, the lesson is concrete. Change: code and tests match exactly the approved spec delta, tests of changed criteria are updated, nothing unrelated changed; no lesson is required.
+- **B6:** the changelog entry names the report ID. Version from the commits as in B6: a fix is a patch; a change is a minor version if it adds behaviour, otherwise a patch; a breaking change follows the B6 rule.
+- **B7:** the acceptance package says what was wrong and is now fixed (or what changed), lists the affected feature's acceptance criteria and links the report. Reject: a code issue goes back to C3, a wrong category or requirement back to triage for a new decision.
+
+Factory-managed artifacts (report status and links, lessons learned, changelog, version) are written by the factory in the B6 commit, so they are part of the diff the human approves and the gates check (G5.5). The lesson is written exactly as the reviewer saw it. The report in the repo shows the state at that commit; the factory's state machine is authoritative for the current status and records the merge commit itself. After the merge the factory changes nothing on `main`.
+
+- Run profile: as B3 (container, own branch, egress proxy only, no secrets, no access to `main`, gates or hidden tests); report, spec and approved baselines read-only.
+- Templates: bug report, lessons learned, build report (with report ID).
+- Guards:
+  - GC3.1 [Verified] The regression test (BUG ID and AC ID in its name) is committed before the fix and fails at its assertion at that commit; the factory checks commit order and the run, as in GB3.1.
+  - GC3.2 [Enforced] A Bug's Definition of Done is not met without a schema-valid lessons-learned entry linked to the report; finishing without it is rejected.
+  - GC3.3 [Enforced] The builder's changes may only touch the paths the report names as affected (factory-managed artifacts are not builder changes and give the builder no exception); anything else is rejected and the builder stops with a question (a new triage decision extends the paths).
+  - GC3.4 [Verified] The hidden bug test fails at its assertion on `main` before the builder starts (GB2.4); otherwise C3 does not start.
+  - GB3.3 and GB3.4 apply unchanged.
+
+### Lessons learned
+Purpose: the same mistake never happens twice. `docs/LESSONS-LEARNED.md` is rendered by the factory from structured entries; only the builder adds entries (through a tool, one per Bug), and the human can read it any time.
+
+- **Read:** before every planner (B2) and builder (B3, C3) run the factory hands over the active entries whose paths or modules match the work; triage and reviewer get all active entries, so the same cause is noticed in other modules too. Lessons are advice, not instructions (R9): an agent follows a lesson's prevention where it fits the approved spec, architecture, DoD and factory policies, and reports a conflict instead of following it.
+- **Review:** ignoring an applicable lesson is a finding with evidence that references the lesson; it is `blocking` only if it also breaks an approved requirement, a mandatory quality rule or another binding decision.
+- **Promote:** when a new entry is linked to an earlier one with the same cause (second occurrence), the factory proposes to the human (R2 format) to turn the lesson into a fixed check: a mandatory test or lint rule through a human-authorized gate-policy change (G4.2, G8.2), or a DoD item through a DoD revision (GA5.2). The category Change is used only if the correction also changes a feature spec. Once the check is in force, the entry is `promoted` and no longer handed to agents.
+- Guards:
+  - GC3.5 [Enforced] The factory hands the lessons to every planner, builder, triage and reviewer run as described above and records which ones. [Verified] The reviewer reports a disregarded applicable lesson.
+  - GC3.6 [Verified] The reviewer checks the builder's same-cause link against all earlier lessons and reports a missing or wrong one; the builder is only expected to link lessons it was given, and a link the reviewer confirms is recorded by the factory. The factory rejects links to unknown, later or the entry's own IDs. [Enforced] Once a second occurrence is confirmed by the review, the factory creates the promotion proposal; only the factory sets `promoted`, after the check is in force.
+
+---
+
 ## Change log
+- 0.3.2 (2026-11-21): ChatGPT re-check of part C: library bump after the red regression test, B6 factory commit limited to factory-managed files so the review stays valid, reviewer-confirmed same-cause links recorded by the factory, report status authoritative in the factory.
+- 0.3.1 (2026-11-21): ChatGPT review of part C worked in: prerequisites checked for the chosen category, Change revision validated like B1, factory assembles the scenario set, factory updates library versions, factory-managed artifacts in the B6 commit, lessons are advice (R9), separate review checks for Bug and Change, triage outcomes, pending spec version, same-cause detection across modules, promotion via gate policy or DoD.
+- 0.3.0 (2026-11-21): Part C specified: C1/C2 triage in one attended run (report, reproduction, exactly three categories, human decides), C3 fix in bug or change mode (red regression test, hidden bug test, smallest fix, B2 light for changed criteria), B4–B7 reused, lessons learned read by planner, builder, reviewer and triage and promoted to a fixed check on a second occurrence.
 - 0.2.0 (2026-11-21): ChatGPT review and re-check of part B worked in (review modes, scenario-set versions GB2.5, changelog commit before approval, disputed hidden tests go to B2, builder view of gate results, changelog inside the verified merge, valid red baseline, revision invalidates results, SemVer proposal); part B (B1–B7) specified: spec, plan + hidden scenarios, test-first build, gates, independent review, docs + DoD, acceptance; feature statuses; standards named without versions (pinned in the playbook, R10).
 - 0.1.2 (2026-11-21): Answers with attachments in A2/A4/A5 (G2.5); GA2.3 exception for attachments; interview log records attachments.
 - 0.1.1 (2026-11-20): Pre-commit review: A5 uses the normal PR/review/approval path; attended interviews; precise guards for A1–A4; SemVer by compatibility; standards named precisely; not-applicable artifacts.

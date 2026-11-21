@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:review-report:0.1",
+  "$id": "urn:levuvo:sf:schema:review-report:0.2",
   "title": "Levuvo SF review report (B5, GB5.1-GB5.3, R3, G3.4)",
   "description": "Written by the independent reviewer through write_review; run, identity, commit and versions are set by the factory. The reviewer gives findings and evidence, never a verdict: the factory derives the result (any blocking finding or unmet DoD review item = back to B3). The output is validated by mode. In feature and skeleton mode, before accepting finish_review the factory checks that dod_items covers exactly the review items of the active DoD (missing = not met, unknown IDs rejected), and checks builder-visible fields for hidden-scenario details (GB5.4). Findings in category hidden-scenario go to B2, others to B3. For display next to gate findings the factory converts findings to SARIF (blocking = error, important = warning, note = note).",
   "type": "object",
@@ -8,6 +8,7 @@
   "properties": {
     "mode": { "enum": ["feature", "skeleton", "test_check"], "description": "Set by the factory. feature = B5; skeleton = A5 (no feature spec); test_check = one disputed hidden test (B4), never advances the feature." },
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "report_id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: the bug report this run belongs to (C3); feature_id and spec_version are then the affected feature and its current spec version." },
     "scenario_set_version": { "type": "integer", "minimum": 1, "description": "GB2.5; feature and test_check modes." },
     "hidden_test": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$", "description": "test_check mode: the disputed test." },
     "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "Reviewed commit (GB5.2)." },
@@ -24,10 +25,10 @@
         "properties": {
           "id": { "type": "string", "pattern": "^RF-[0-9]{2,}$" },
           "severity": { "enum": ["blocking", "important", "note"], "description": "Matters of taste are never blocking (GB5.3)." },
-          "category": { "enum": ["spec", "architecture", "maintainability", "security", "beyond-spec", "docs", "hidden-scenario"] },
+          "category": { "enum": ["spec", "architecture", "maintainability", "security", "beyond-spec", "docs", "hidden-scenario", "lesson", "regression"] },
           "file": { "type": "string", "minLength": 1 },
           "line": { "type": "integer", "minimum": 1 },
-          "refs": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(AC-[0-9]{3,}-[0-9]{2,}|REQ-[0-9]{3,}-[0-9]{2,}|ADR-[0-9]{4}|DOD-[0-9]+|SPEC|PLAN|ARCHITECTURE)$" }, "description": "What the finding is judged against (GB5.3)." },
+          "refs": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(AC-[0-9]{3,}-[0-9]{2,}|REQ-[0-9]{3,}-[0-9]{2,}|ADR-[0-9]{4}|DOD-[0-9]+|LL-[0-9]{3,}|BUG-[0-9]{3,}|SPEC|PLAN|ARCHITECTURE)$" }, "description": "What the finding is judged against (GB5.3); LL = a disregarded lesson (GC3.5), BUG = the bug report in part C." },
           "finding": { "type": "string", "minLength": 1, "description": "Describes behaviour; never quotes hidden tests (G3.3)." },
           "evidence": { "type": "string", "minLength": 1 },
           "suggestion": { "type": "string" }

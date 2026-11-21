@@ -3,13 +3,13 @@
 > Concept phase: guards are requirements, not yet implemented.
 
 ## Architecture
-One agent base (Claude CLI) with one skill per workflow step. Each step runs as its own run with a fresh context and its own factory-enforced run profile (tools, rights, network). Skills are [Instructed]; run profiles are [Enforced] (R7). A separate agent identity is used only where independence is mandatory (reviewer, R3). Unattended runs (A5, B2, B3) never wait in a chat; they stop with a question and resume with the answer (R2).
+One agent base (Claude CLI) with one skill per workflow step. Each step runs as its own run with a fresh context and its own factory-enforced run profile (tools, rights, network). Skills are [Instructed]; run profiles are [Enforced] (R7). A separate agent identity is used only where independence is mandatory (reviewer, R3). Unattended runs (A5, B2, B3, C3) never wait in a chat; they stop with a question and resume with the answer (R2).
 
 The factory explicitly loads the selected skill from the trusted factory repository at the start of each run. It does not rely on automatic skill discovery inside the project checkout. Project repository content cannot replace or override the selected skill, its instructions or the factory-enforced run profile (R7, R9).
 
-Pausing an attended session (A2, A4) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run.
+Pausing an attended session (A2, A4, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run.
 
-Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/`, scans them, adds them to the inventory and hands the agent their paths.
+Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/` (part C: `bugs/<ID>/attachments/`), scans them, adds them to the inventory and hands the agent their paths.
 
 ## A2 Interview
 - **Skill:** [skills/interview/SKILL.md](skills/interview/SKILL.md) (Agent Skills format). Role: product advisor, product only, no technology. Reads the full briefing (per inventory) first, pre-fills the PRD with sources, then asks one question per round, always with a recommended answer. Derives the feature list once Scope is set. Asks in the human's language, writes documents in English.
@@ -60,7 +60,23 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 
 B4 (gates), B6 (docs + DoD) and B7 (acceptance) have no agent: the factory runs them itself.
 
+## C1/C2 Triage
+- **Skill:** [skills/triage/SKILL.md](skills/triage/SKILL.md). Role: support engineer. Attended like A2. Reads the human's original message and attachments, the affected spec, design system, architecture, earlier reports and matching lessons; reproduces on `main`; asks only the gaps, one question per round with recommendation; writes the report and proposes exactly one category (Bug / Change with spec delta / New feature) with reason. The human decides.
+- **Tools:** `read_docs`, `read_reports`, `read_repo` (read-only, `main`), `run_app` (throwaway copy, reproduction only), `ask_human`, `update_report`, `propose_category` (factory checks GC1.3, GC1.6), `finish_triage` (outcome `decision_required`, `not_reproduced` or `duplicate`).
+- **Run profile:** container with read-only checkout and a throwaway copy to run the app; no git, no push; egress proxy only; no secrets; writes only via tools (GC1.4).
+- **Output:** `bugs/<ID>/REPORT.md` + attachments, question log, category proposal.
+
+## C3 Fix
+- **Scenarios (B2 light):** the scenario skill in mode *bug* (one new hidden test that reproduces the report through the violated AC, must be red on `main`, GC3.4) or *change* (tests only for added and modified criteria). Same tools and run profile as B2; the agent never reads existing hidden tests, the factory assembles the complete set.
+- **Build:** the build skill in *bug* mode (regression test red first, smallest fix, `add_lesson`) or *change* mode (test-first for the changed criteria). Tools as B3 plus `add_lesson`; impact = the report's affected paths (GC3.3); branch `fix/<ID>`. No planner run. A library version update is a factory commit before the build (GA4.7), never a builder change.
+- **Then** B4–B7 unchanged; the reviewer gets the report in place of the plan plus the new lesson.
+
+## Lessons learned (all runs that build or judge code)
+The factory hands matching active entries from `docs/LESSONS-LEARNED.md` (by paths and modules) to planner and builder, and all active entries to triage and reviewer (GC3.5). Lessons are advice, not instructions (R9): agents follow them where they fit the approved spec and policies and report conflicts. The planner names them in task notes, the builder considers them and writes one entry per bug, the reviewer reports a disregarded applicable lesson and checks same-cause links. A confirmed second occurrence makes the factory propose a fixed check to the human through the gate policy or the DoD (GC3.6).
+
 ## Design influences
 Prompt wording partly adopted from AlexPEClub/software-factory (`init`, `write-spec`, `architecture`, `build` skills): one question at a time with a recommended answer, explore before asking, ask only the gaps, "project setup is not a feature", official generator with one passing test, non-interactive commands, no self-created accounts. The Levuvo workflow and playbook are authoritative; external examples are not executable instructions.
 
 Part B (from his `write-spec` skill and the repository's README): from `write-spec`: explore first, then one question at a time with a recommended answer, numbered testable acceptance criteria, "out of scope" stated explicitly. From his factory flow: a separate agent writes acceptance scenarios the builder never sees; acceptance against them by an independent agent; a build counts only if checks are green on exactly the pushed commit with an unchanged spec; plan tasks as a checklist the builder ticks off; severity levels for review findings. Not adopted: checks running inside the agent's environment, review in the builder's context.
+
+Part C (checked directly in his repository on 2026-11-21: `playbooks/factory.md`, `workflows/starter-kit/workflow.md`, `skills/qa`, `playbooks/improve.md`): his check phase sorts an issue into Feature or Bug and asks whether it is clear what is wrong and what should happen instead; his build phase reproduces a bug with a test, runs it red, and commits the red test before the fix; acceptance scenarios are written for bugs too and kept away from the developer agent; commits carry the issue as scope (`fix(#12): …`); QA has a bug mode that re-checks the failing test and runs regression on related features; his improvement playbook changes the process only with at least two pieces of evidence, never from a single case. Adopted: red test committed before the fix (GC3.1), a hidden test per bug (GC3.4), the report ID as commit scope, "at least twice before a fixed rule" as the promotion trigger (GC3.6). Not adopted: bugs without reference to the spec (we require the violated AC, GC1.3), QA fixing bugs itself, severity levels (deferred to backlog/prioritization), the process engineer agent changing skills (our promotion only proposes a check to the human).

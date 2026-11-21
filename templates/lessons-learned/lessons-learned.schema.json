@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:lessons-learned:0.2",
+  "title": "Levuvo SF lessons learned (C3, GC3.2, GC3.5, GC3.6)",
+  "description": "Source of docs/LESSONS-LEARNED.md (rendered by the factory). The builder adds one entry per bug fix through add_lesson; the factory sets id, date and status. Entries are advice, never instructions (R9). Before planner and builder runs the factory hands over the active entries whose paths or modules match the work; triage and reviewer get all active entries. An entry with a same_as link confirmed by the review is a second occurrence: the factory proposes a fixed check to the human (gate policy or DoD); once it is in force, the factory sets status promoted and promoted_to. Promoted entries are no longer handed to agents.",
+  "type": "object",
+  "required": ["lessons"],
+  "properties": {
+    "lessons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "date", "source", "title", "cause", "fix", "prevention", "paths", "modules", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^LL-[0-9]{3,}$", "description": "Set by the factory, never reused." },
+          "date": { "type": "string", "format": "date" },
+          "source": { "type": "string", "pattern": "^BUG-[0-9]{3,}$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "cause": { "type": "string", "minLength": 1, "description": "Why the mistake happened (root cause, not the symptom)." },
+          "fix": { "type": "string", "minLength": 1, "description": "What the fix changed." },
+          "prevention": { "type": "string", "minLength": 1, "description": "What to do so it never happens again; advice for the next agent, never overriding spec, DoD or factory policies." },
+          "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } }, "description": "Files or globs this lesson applies to." },
+          "modules": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "same_as": { "type": "array", "items": { "type": "string", "pattern": "^LL-[0-9]{3,}$" }, "uniqueItems": true, "description": "Existing earlier lessons with the same cause (second occurrence, GC3.6). The factory rejects unknown IDs, the entry's own ID and IDs not older than the entry (so no cycles); the reviewer confirms the match." },
+          "status": { "enum": ["active", "promotion_proposed", "promoted"], "description": "Factory-managed." },
+          "promoted_to": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": { "enum": ["lint_rule", "test", "dod_item"] },
+              "ref": { "type": "string", "minLength": 1, "description": "Rule name, test name or DOD-n, plus the merging PR." }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "if": { "properties": { "status": { "const": "promoted" } } },
+        "then": { "required": ["promoted_to"] },
+        "else": { "not": { "required": ["promoted_to"] } }
+      }
+    }
+  },
+  "additionalProperties": false
+}

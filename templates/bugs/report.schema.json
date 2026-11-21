@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:bug-report:0.2",
+  "title": "Levuvo SF bug report (C1/C2, GC1.1-GC1.4, GC3.3)",
+  "description": "Source of bugs/<ID>/REPORT.md (rendered by the factory). One report per problem the human describes, whatever its category. Fields follow the anomaly attributes of IEEE 1044 (description, steps, environment, status, disposition). The triage agent fills its parts through update_report; the factory sets id, status, original message, attachments, timestamps and the decision. The factory additionally checks that a referenced feature and its ACs exist in the named spec version (GC1.3), and that a duplicate points to an existing report.",
+  "type": "object",
+  "required": ["id", "title", "status", "reported_at", "original_message", "attachments"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Permanent, never reused; set by the factory." },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "status": { "enum": ["triage", "decided", "in_progress", "in_acceptance", "done", "closed"], "description": "Set by the factory state machine only. triage (C1/C2) → decided (human chose) → in_progress (C3, B4-B6) → in_acceptance (B7) → done (merged). closed = duplicate, handed over as new feature, or closed by the human." },
+    "reported_at": { "type": "string", "format": "date-time" },
+    "original_message": {
+      "type": "object",
+      "description": "The human's own words, stored unchanged by the factory (GC1.1); the agent cannot write this field.",
+      "required": ["text", "language", "sha256"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "language": { "type": "string", "minLength": 2, "description": "BCP 47 tag." },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "attachments": {
+      "type": "array",
+      "description": "Stored, scanned and inventoried by the factory (G2.5, GC1.2).",
+      "items": { "type": "string", "pattern": "^bugs/BUG-[0-9]{3,}/attachments/[^/]", "not": { "pattern": "(^|/)\\.\\.(/|$)" } }
+    },
+    "steps_to_reproduce": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "expected": { "type": "string", "minLength": 1 },
+    "actual": { "type": "string", "minLength": 1 },
+    "environment": {
+      "type": "object",
+      "description": "Where the human saw it.",
+      "properties": {
+        "version": { "type": "string", "description": "Released version or commit." },
+        "device": { "type": "string" },
+        "os": { "type": "string" },
+        "browser": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "affected": {
+      "type": "object",
+      "description": "What the problem concerns. For Bug and Change, paths is the fix impact: C3 may change only these (GC3.3).",
+      "required": ["paths"],
+      "properties": {
+        "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+        "spec_version": { "type": "integer", "minimum": 1, "description": "Spec version the ACs are taken from." },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$" }, "uniqueItems": true },
+        "modules": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "paths": { "type": "array", "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } }, "description": "Files or globs, incl. tests and docs." },
+        "dependency": { "type": "string", "description": "Package URL of an own library if the cause lies there (GA4.6)." }
+      },
+      "additionalProperties": false
+    },
+    "reproduction": {
+      "type": "object",
+      "required": ["result", "main_commit", "evidence"],
+      "properties": {
+        "result": { "enum": ["reproduced", "not_reproduced", "works_as_specified"] },
+        "main_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "evidence": { "type": "string", "minLength": 1, "description": "What the agent did and saw (commands, output, screenshot path)." }
+      },
+      "additionalProperties": false
+    },
+    "duplicate_of": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Proposed by the agent; the factory links and closes the report." },
+    "proposal": {
+      "type": "object",
+      "description": "The agent's classification, shown to the human with reason and recommendation.",
+      "required": ["category", "reason"],
+      "properties": {
+        "category": { "$ref": "#/$defs/category" },
+        "reason": { "type": "string", "minLength": 1 },
+        "spec_delta": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Change only: the concrete spec change the human confirms.",
+          "items": {
+            "type": "object",
+            "required": ["op", "target", "text"],
+            "properties": {
+              "op": { "enum": ["add", "modify", "remove"] },
+              "target": { "type": "string", "pattern": "^(AC|REQ)-[0-9]{3,}-[0-9]{2,}$", "description": "For add: the requirement (REQ) that gets a new AC, or the new REQ ID." },
+              "text": { "type": "string", "minLength": 1, "description": "New statement (EARS sentence for REQ, pass/fail statement for AC); for remove the reason." }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "category": { "const": "change" } } }, "then": { "required": ["spec_delta"] }, "else": { "not": { "required": ["spec_delta"] } } }
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "description": "Set by the factory from the human's choice (C2). For a Change it confirms category and spec delta in one decision. The prerequisites of the chosen category apply (GC1.3, GC1.6): a Bug or Change decision is recorded only when the current proposal has that category, so its conditions are checked; if the human picks another category, triage resumes until the agent has proposed it with complete information.",
+      "required": ["category", "decided_at"],
+      "properties": {
+        "category": { "$ref": "#/$defs/category" },
+        "decided_at": { "type": "string", "format": "date-time" },
+        "comment": { "type": "string" },
+        "new_spec_version": { "type": "integer", "minimum": 1, "description": "Change: the spec version the factory created from the delta." },
+        "new_feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$", "description": "New feature: the entry added to the feature list." }
+      },
+      "additionalProperties": false
+    },
+    "closed_reason": { "enum": ["duplicate", "new_feature", "closed_by_human"] },
+    "fix": {
+      "type": "object",
+      "description": "Factory-managed links to the fix.",
+      "properties": {
+        "branch": { "type": "string" },
+        "pr": { "type": "string" },
+        "merge_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "released_in": { "type": "string", "description": "SemVer version." },
+        "lesson": { "type": "string", "pattern": "^LL-[0-9]{3,}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "category": { "enum": ["bug", "change", "new_feature"], "description": "Exactly three categories (C2)." }
+  },
+  "allOf": [
+    { "if": { "properties": { "proposal": { "properties": { "category": { "const": "bug" } }, "required": ["category"] } }, "required": ["proposal"] },
+      "then": { "required": ["steps_to_reproduce", "expected", "actual", "affected", "reproduction"],
+        "properties": { "affected": { "required": ["feature_id", "spec_version", "acceptance_criteria"], "properties": { "acceptance_criteria": { "minItems": 1 } } },
+                        "reproduction": { "properties": { "result": { "const": "reproduced" } } } } } },
+    { "if": { "properties": { "proposal": { "properties": { "category": { "const": "change" } }, "required": ["category"] } }, "required": ["proposal"] },
+      "then": { "required": ["affected"], "properties": { "affected": { "required": ["feature_id", "spec_version"] } } } },
+    { "if": { "properties": { "status": { "enum": ["decided", "in_progress", "in_acceptance", "done"] } } },
+      "then": { "required": ["proposal", "decision"] } },
+    { "if": { "properties": { "status": { "const": "closed" } } }, "then": { "required": ["closed_reason"] } },
+    { "if": { "required": ["duplicate_of"] }, "then": { "properties": { "closed_reason": { "const": "duplicate" } } } },
+    { "if": { "properties": { "decision": { "properties": { "category": { "const": "bug" } }, "required": ["category"] } }, "required": ["decision"] },
+      "then": { "required": ["proposal"], "properties": { "proposal": { "properties": { "category": { "const": "bug" } } } } } },
+    { "if": { "properties": { "decision": { "properties": { "category": { "const": "change" } }, "required": ["category"] } }, "required": ["decision"] },
+      "then": { "required": ["proposal"], "properties": { "proposal": { "properties": { "category": { "const": "change" } } }, "decision": { "required": ["new_spec_version"] } } } }
+  ]
+}
