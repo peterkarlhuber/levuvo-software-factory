@@ -4,6 +4,7 @@
   "unit": "per million tokens",
   "source": "Anthropic first-party API list prices as published on 2026-11-21; cache write = 5-minute cache (1.25 x input)",
   "note": "Used only for the factory's cost ESTIMATE (PLAYBOOK G12.1). Update this file (reviewed PR) when prices change.",
+  "web_search": { "usd_per_1000": 10.0, "note": "Anthropic server-side web search, per search request, plus the tokens of its results" },
   "models": {
     "claude-opus-5-5": { "input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2 },
     "claude-sonnet-5-5": { "input": 2.0, "output": 10.0, "cache_write": 2.5, "cache_read": 0.1 },

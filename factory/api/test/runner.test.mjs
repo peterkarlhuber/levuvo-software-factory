@@ -392,3 +392,20 @@ test("shutdown while a container is being created: no orphan container, no token
   assert.equal((await w.call("POST", "/api/projects/tennis-club/interview/start", {})).status, 503);
   w.api.close();
 });
+
+test("web search: off by default; when the owner switches it on, run record, container and gateway token all say so (scope review findings 1 and 5)", async () => {
+  for (const on of [false, true]) {
+    let env = null;
+    const w = await world(async ({ runId, c }) => { env = c.spec.Env; await tool(w.dirs, runId, "read_briefing", {}); await new Promise(() => {}); },
+      on ? { roles: { interviewer: { web_search: true } } } : {});
+    await newProject(w);
+    const r = await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+    for (let i = 0; i < 200 && !env; i++) await sleep(10);
+    const [tok] = readdirSync(w.dirs.tokens);
+    assert.deepEqual(JSON.parse(readFileSync(join(w.dirs.tokens, tok), "utf8")).server_tools, on ? ["web_search"] : []);
+    assert.ok(env.includes(`LEVUVO_SF_WEB_SEARCH=${on ? 1 : 0}`));
+    assert.equal(w.runner.runRecord(r.body.run_id).web_search, on);
+    await w.runner.shutdown();
+    w.api.close();
+  }
+});

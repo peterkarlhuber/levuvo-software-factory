@@ -70,6 +70,16 @@ test("settings: defaults for all nine roles, validation, persistence", () => {
   const s = createSettings(file);
   s.update({ ask_human_wait_minutes: 3, human_language: "en" });
   assert.equal(createSettings(file).get().ask_human_wait_minutes, 3);
+  assert.equal(createSettings(file).get().roles.interviewer.web_search, false, "an older settings file gets the default: off");
+});
+
+test("settings: web search is off by default and only the interviewer may have it (scope review finding 2)", () => {
+  const d = defaults();
+  assert.ok(Object.values(d.roles).every((r) => r.web_search === false));
+  assert.equal(merge(d, { roles: { interviewer: { web_search: true } } }).roles.interviewer.web_search, true);
+  assert.equal(merge(d, { roles: { reviewer: { web_search: false } } }).roles.reviewer.web_search, false);
+  assert.throws(() => merge(d, { roles: { builder: { web_search: true } } }), /only available for: interviewer/);
+  assert.throws(() => merge(d, { roles: { interviewer: { web_search: "on" } } }), /true or false/);
 });
 
 test("usage: cache tokens priced, incomplete calls make the cost a lower bound, errors bill nothing", () => {
@@ -86,6 +96,12 @@ test("usage: cache tokens priced, incomplete calls make the cost a lower bound, 
   assert.equal(partial.tokens_complete, false);
   assert.equal(partial.cost_is_lower_bound, true);
   assert.equal(summarize([], prices).estimated_cost_usd, 0);
+  // web searches: 10 USD per 1,000 on top of the tokens; without a search price the cost is a lower bound
+  const ws = summarize([{ status: 200, model: "m", complete: true, input_tokens: 0, output_tokens: 0, web_search_requests: 3 }], { ...prices, web_search: { usd_per_1000: 10 } });
+  assert.equal(ws.web_search_requests, 3);
+  assert.equal(ws.estimated_cost_usd, 0.03);
+  assert.equal(ws.cost_is_lower_bound, false);
+  assert.equal(summarize([{ status: 200, model: "m", complete: true, input_tokens: 0, output_tokens: 0, web_search_requests: 1 }], prices).cost_is_lower_bound, true);
 });
 
 test("run container template: fixed image, hardening, one network, two run mounts", () => {

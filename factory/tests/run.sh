@@ -128,7 +128,7 @@ check "default model and effort per role" "claude-opus-5-5 medium 9" "$(get /api
 check "subscription mode not available yet" 400 "$(status -X PUT -H 'Content-Type: application/json' --data '{"billing_mode":"subscription"}' "$API/api/settings")"
 
 echo "› project creation: private repository with protected main (A0)"
-for p in e2e-main e2e-pause e2e-timeout; do
+for p in e2e-main e2e-pause e2e-timeout e2e-web; do
   check "create project $p" 201 "$(status -X POST -H 'Content-Type: application/json' --data "{\"name\":\"E2E $p\",\"slug\":\"$p\"}" "$API/api/projects")"
 done
 check "a second project with the same name is refused" 409 "$(status -X POST -H 'Content-Type: application/json' --data '{"name":"x","slug":"e2e-main"}' "$API/api/projects")"
@@ -138,7 +138,7 @@ check "the factory account is not an admin" false "$(admin "$GIT/api/v1/users/le
 
 echo "› briefing upload and screening (A1)"
 NOTES="# Idea\nCourt booking for our tennis club, 180 members, 6 courts. Guests play with members."
-for p in e2e-main e2e-pause e2e-timeout; do
+for p in e2e-main e2e-pause e2e-timeout e2e-web; do
   post "/api/projects/$p/briefing" "{\"path\":\"notes.md\",\"content_base64\":\"$(b64 "$(printf "$NOTES")")\"}" "PUT" >/dev/null
 done
 check "a text file with a secret is blocked" "false blocked" "$(post /api/projects/e2e-main/briefing "{\"path\":\"secret.txt\",\"content_base64\":\"$(b64 'aws_access_key_id = AKIAZ7Q3XK4N2TJ5WB6M')\"}" PUT | json 'd.file.readable+" "+d.file.secret_scan.status')"
@@ -227,6 +227,23 @@ check "the agent asks" waiting_for_human "$(wait_iv e2e-timeout waiting_for_huma
 check "after the wait time the run is paused" paused "$(wait_iv e2e-timeout paused 100)"
 check "reason: paused_wait_timeout" paused_wait_timeout "$(get /api/projects/e2e-timeout/interview | json 'd.last_exit_reason')"
 post /api/settings '{"ask_human_wait_minutes":10}' PUT >/dev/null
+
+echo "› web search for the interviewer: off by default, switched on with the README command"
+check "levuvo-sf web-search shows: off by default" "Interviewer web search: off" "$(dc exec -T factory levuvo-sf web-search | cut -d' ' -f1-4)"
+check "web search refused for other roles" 400 "$(status -X PUT -H 'Content-Type: application/json' --data '{"roles":{"builder":{"web_search":true}}}' "$API/api/settings")"
+check "the run without web search had no WebSearch tool and sent no server-side tool" "0 0" "$(grep -c '"project":"e2e-main".*WebSearch' <<< "$FAKE") $(grep -c '"project":"websearch"' <<< "$FAKE")"
+check "levuvo-sf web-search on" "Interviewer web search: on" "$(dc exec -T factory levuvo-sf web-search on | cut -d' ' -f1-4)"
+post /api/projects/e2e-web/interview/start '{}' >/dev/null
+check "the run with web search ends" paused "$(wait_iv e2e-web paused 120)"
+WREC="$(get "/api/runs/$(get /api/projects/e2e-web/interview | json 'd.log.runs[0].run_id')")"
+check "run record: web search on, one search counted and priced" "true 1 true" "$(json 'd.web_search+" "+d.usage.web_search_requests+" "+(d.usage.estimated_cost_usd>=0.01)' <<< "$WREC")"
+check "the CLI offered the six A2 tools plus WebSearch, nothing else" "WebSearch,mcp__factory__ask_human,mcp__factory__finish_interview,mcp__factory__read_briefing,mcp__factory__tag_briefing_file,mcp__factory__update_features,mcp__factory__update_prd_section" "$(json 'd.tools_offered.slice().sort().join(",")' <<< "$WREC")"
+WFAKE="$(dc logs --no-log-prefix fake-model)"
+check "the search went through the gateway as Anthropic's server-side search, with the stored key" "1 0" "$(grep '"project":"websearch"' <<< "$WFAKE" | grep -c '"server_tools":\["web_search_20250305"\]') $(grep '"project":"websearch"' <<< "$WFAKE" | grep -c '"key_ok":false')"
+check "no script mismatch with web search" 0 "$(grep -E '"project":"(e2e-web|websearch)"' <<< "$WFAKE" | grep -c '"mismatch"')"
+check "the PRD cites the web source with its retrieval date" 1 "$(get /api/projects/e2e-web/interview/prd.md | grep -c "web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved $(date -u +%F))")"
+check "the gateway log holds no search query" 0 "$(dc logs model-gateway 2>&1 | grep -c 'Accessibility')"
+check "levuvo-sf web-search off" "Interviewer web search: off" "$(dc exec -T factory levuvo-sf web-search off | cut -d' ' -f1-4)"
 
 echo "› levuvo-sf demo as the owner runs it (README step 5)"
 # answers like a person: types once each question is shown, stdin stays open until the demo has ended

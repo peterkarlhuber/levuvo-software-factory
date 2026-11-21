@@ -10,7 +10,7 @@
 import { readJson, writeJson } from "./store.mjs";
 
 export const SECTIONS = ["Vision", "Problem", "Users", "Alternatives", "Goals and success criteria", "Non-goals", "Scope", "Quality", "Constraints", "Open questions"];
-const SOURCE_PART = /^(briefing\/.+|answer Q-\d{3,}|attachment .+)$/;
+const SOURCE_PART = /^(briefing\/.+|answer Q-\d{3,}|attachment .+|web https:\/\/[^\s;]+ \(retrieved \d{4}-\d{2}-\d{2}\))$/;
 
 export const TOOLS = [
   {
@@ -121,7 +121,12 @@ export function createInterview({ dataDir, briefing, validator, settings }) {
   function checkSource(slug, iv, source) {
     const inv = briefing.inventory(slug);
     for (const part of source.split(";").map((s) => s.trim()).filter(Boolean)) {
-      if (!SOURCE_PART.test(part)) return `source "${part}" must be briefing/<path>, answer Q-… or attachment <path>`;
+      if (!SOURCE_PART.test(part)) return `source "${part}" must be briefing/<path>, answer Q-…, attachment <path> or web <https URL> (retrieved YYYY-MM-DD)`;
+      if (part.startsWith("web ")) {
+        const day = /\(retrieved (\d{4}-\d{2}-\d{2})\)$/.exec(part)[1];
+        if (Number.isNaN(Date.parse(`${day}T00:00:00Z`)) || new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day) return `source ${part}: invalid retrieval date`;
+        if (day > new Date().toISOString().slice(0, 10)) return `source ${part}: retrieval date is in the future`;
+      }
       if (part.startsWith("briefing/") && !inv.files.some((f) => f.path === part)) return `source ${part} is not in the briefing`;
       if (part.startsWith("answer ")) {
         const q = iv.log.entries.find((e) => e.question.id === part.slice(7));

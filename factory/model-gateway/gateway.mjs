@@ -5,10 +5,14 @@
 // `POST /v1/messages` (and `count_tokens`), drops every client credential, adds the real API key, forwards over HTTPS
 // with certificate check to the fixed upstream api.anthropic.com, follows no redirects and records the token usage of
 // every model call per run. It is the only container that can read the key.
+// Server-side tools run at Anthropic, not in the container, so network isolation does not limit them: the gateway
+// reads every request and refuses any server-side tool the run's token does not allow (only `web_search_*`, only for a
+// run whose profile has web search on), and any request that names remote MCP servers or a code container.
 //
 // Files (all paths fixed):
 //   /run/levuvo/key/api-key        the real key, read on every request (a new key applies at once); volume, read-only here
-//   /run/levuvo/tokens/<sha256>    one file per live run token, written and removed by the factory; read-only here
+//   /run/levuvo/tokens/<sha256>    one file per live run token, written and removed by the factory; read-only here.
+//                                  JSON: { run_id, expires_at, server_tools: [] | ["web_search"] }
 //   /var/lib/levuvo/usage/<run>.jsonl  one line per model call: model, status, tokens or `complete: false`
 // `node gateway.mjs set-key` stores a key read from standard input (see compose service `set-api-key`).
 import { createHash } from "node:crypto";
@@ -42,14 +46,43 @@ export function upstream(env = process.env, switchExists = exists(TEST_SWITCH)) 
 function exists(p) { try { statSync(p); return true; } catch { return false; } }
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
-/** The run a token belongs to, or null. Token: 64 hex characters, registered by the factory, not expired. */
+/** The run a token belongs to and the server-side tools it may use, or null. Token: 64 hex characters, registered by
+ * the factory, not expired. A missing or unknown `server_tools` entry allows nothing. */
 export function runForToken(token, dir = TOKEN_DIR, now = Date.now()) {
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) return null;
   try {
     const t = JSON.parse(readFileSync(`${dir}/${sha256(token)}`, "utf8"));
     if (!/^[a-z0-9-]{3,64}$/.test(t.run_id) || !(Date.parse(t.expires_at) > now)) return null;
-    return t.run_id;
+    const serverTools = Array.isArray(t.server_tools) ? t.server_tools.filter((x) => SERVER_TOOLS[x]) : [];
+    return { runId: t.run_id, serverTools };
   } catch { return null; }
+}
+
+/** Server-side tools a run profile can allow, by the tool `type` the API uses (any dated version). */
+const SERVER_TOOLS = { web_search: /^web_search_\d{8}$/ };
+/** Request fields that make Anthropic reach out on the run's behalf; never allowed. */
+const FORBIDDEN_FIELDS = ["mcp_servers", "container"];
+
+/**
+ * Checks the tools a request offers against the run's allowed server-side tools. A tool without `type` (or `custom`)
+ * is a client tool the CLI runs itself, inside the isolated container. Every other type runs at Anthropic (web fetch,
+ * code execution, …) or is an Anthropic-defined client tool; only an allowed `web_search_*` passes.
+ * Returns null when allowed, else a reason.
+ */
+export function checkRequest(body, serverTools) {
+  let j;
+  try { j = JSON.parse(body.toString("utf8")); } catch { return "request is not JSON"; }
+  if (typeof j !== "object" || j === null || Array.isArray(j)) return "request is not a JSON object";
+  for (const f of FORBIDDEN_FIELDS) if (j[f] !== undefined) return `${f} is not allowed`;
+  if (j.tools === undefined) return null;
+  if (!Array.isArray(j.tools)) return "tools must be a list";
+  for (const t of j.tools) {
+    const type = t?.type;
+    if (type === undefined || type === "custom") continue;
+    if (typeof type === "string" && serverTools.some((name) => SERVER_TOOLS[name].test(type))) continue;
+    return `tool type ${String(type).slice(0, 60)} is not allowed for this run`;
+  }
+  return null;
 }
 
 /** Path check: exact path, the only query the CLI sends is `beta=true`. */
@@ -124,6 +157,9 @@ const USAGE_FIELDS = ["input_tokens", "output_tokens", "cache_creation_input_tok
 function pickUsage(u) {
   const out = {};
   for (const f of USAGE_FIELDS) if (Number.isInteger(u?.[f]) && u[f] >= 0) out[f] = u[f];
+  // searches are billed per request (G12.1); the count only, never the queries (G11.2)
+  const ws = u?.server_tool_use?.web_search_requests;
+  if (Number.isInteger(ws) && ws >= 0) out.web_search_requests = ws;
   return out;
 }
 
@@ -142,8 +178,9 @@ export function createGateway({ tokenDir = TOKEN_DIR, usageDir = USAGE_DIR, keyF
   return createServer((req, res) => {
     if (req.method !== "POST") return fail(res, 405, "invalid_request_error", "only POST is accepted");
     if (!allowedPath(req.url)) { log({ action: "blocked", reason: "path", path: String(req.url).slice(0, 100) }); return fail(res, 404, "not_found_error", "not available through the factory gateway"); }
-    const runId = runForToken(clientToken(req.headers), tokenDir);
-    if (!runId) { log({ action: "blocked", reason: "token" }); return fail(res, 401, "authentication_error", "unknown or expired run token"); }
+    const run = runForToken(clientToken(req.headers), tokenDir);
+    if (!run) { log({ action: "blocked", reason: "token" }); return fail(res, 401, "authentication_error", "unknown or expired run token"); }
+    const runId = run.runId;
     let key;
     try { key = readFileSync(keyFile, "utf8").trim(); } catch { key = ""; }
     if (!key) { record(runId, { error: "no_api_key", complete: true }); return fail(res, 503, "api_error", "no API key stored in the factory; run: docker compose run --rm set-api-key"); }
@@ -157,6 +194,12 @@ export function createGateway({ tokenDir = TOKEN_DIR, usageDir = USAGE_DIR, keyF
     req.on("end", () => {
       if (size > MAX_BODY) return;
       const body = Buffer.concat(chunks);
+      const refused = checkRequest(body, run.serverTools);
+      if (refused) {
+        log({ action: "blocked", reason: "tools", run: runId, detail: refused });
+        record(runId, { error: "tool_refused", detail: refused, complete: true }); // refused here: nothing billed
+        return fail(res, 403, "permission_error", `refused by the factory gateway: ${refused}`);
+      }
       const counting = req.url.startsWith("/v1/messages/count_tokens");
       const send = target.protocol === "https:" ? httpsRequest : httpRequest;
       const up = send({

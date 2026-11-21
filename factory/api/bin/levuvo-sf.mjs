@@ -93,7 +93,7 @@ async function demo() {
     // the summary only once the run has fully ended (record, usage): finish_interview comes before the run's end
     if ((iv.status === "finished" || iv.status === "paused") && !iv.active_run) {
       const rec = await api("GET", `/api/runs/${iv.log.runs.at(-1).run_id}`);
-      console.log(`\nInterview ${iv.status} (${rec.exit_reason}). Tool calls: ${rec.tool_calls}. Model: ${rec.model}, effort ${rec.effort}.`);
+      console.log(`\nInterview ${iv.status} (${rec.exit_reason}). Tool calls: ${rec.tool_calls}. Model: ${rec.model}, effort ${rec.effort}. Web search: ${rec.web_search ? `on, ${rec.usage.web_search_requests ?? 0} searches` : "off"}.`);
       const u = rec.usage;
       console.log(`Tokens: ${u.input_tokens} in, ${u.output_tokens} out, ${u.cache_read_input_tokens} cache read, ${u.cache_creation_input_tokens} cache write; estimated cost ${u.cost_is_lower_bound ? "at least " : ""}$${u.estimated_cost_usd} (estimate, price table ${u.price_table}).`);
       if (iv.status === "finished") console.log(`\n${await api("GET", `/api/projects/${slug}/interview/prd.md`)}\n${await api("GET", `/api/projects/${slug}/interview/features.md`)}`);
@@ -112,9 +112,19 @@ async function status() {
   }
 }
 
+/** `web-search on|off`: the interviewer's web search for all interviews (off by default; G7.5). Without an argument it
+ * shows the current setting. Later the web UI switches it per project. */
+async function webSearch() {
+  const arg = process.argv[3];
+  if (arg !== undefined && arg !== "on" && arg !== "off") { console.log("usage: levuvo-sf web-search [on|off]"); process.exit(2); }
+  const s = arg === undefined ? await api("GET", "/api/settings") : await api("PUT", "/api/settings", { roles: { interviewer: { web_search: arg === "on" } } });
+  console.log(`Interviewer web search: ${s.roles.interviewer.web_search ? "on" : "off"} (applies from the next interview run).`);
+}
+
 const cmd = process.argv[2];
 if (process.env.LEVUVO_SF_CLI_IMPORT === "1") { /* imported by a unit test: no command */ } else {
-const main = cmd === "demo" ? demo : cmd === "status" ? status : null;
-if (!main) { console.log("usage: levuvo-sf demo | levuvo-sf status"); process.exit(2); }
+const COMMANDS = { demo, status, "web-search": webSearch };
+const main = Object.hasOwn(COMMANDS, cmd ?? "") ? COMMANDS[cmd] : null;
+if (!main) { console.log("usage: levuvo-sf demo | levuvo-sf status | levuvo-sf web-search [on|off]"); process.exit(2); }
 main().catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
 }

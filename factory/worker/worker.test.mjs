@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { cliArgs } from "./launch.mjs";
+import { cliArgs, cliEnv } from "./launch.mjs";
 import { createHandler, loadTools, relay } from "./mcp.mjs";
 
 const env = { LEVUVO_SF_MODEL: "claude-opus-5-5", LEVUVO_SF_EFFORT: "medium", LEVUVO_SF_MAX_TURNS: "300" };
@@ -32,6 +32,27 @@ test("CLI arguments: no built-in tools, only the named factory tools, nothing as
   assert.equal(val("--effort"), "medium");
   assert.equal(val("--max-turns"), "300");
   assert.ok(!a.includes("--dangerously-skip-permissions"));
+});
+
+test("CLI arguments with web search on: restricted mode, WebSearch the only built-in tool, nothing else added", () => {
+  const d = inDir();
+  const a = cliArgs({ ...env, LEVUVO_SF_WEB_SEARCH: "1" }, ["ask_human", "read_briefing"], d);
+  const val = (flag) => a[a.indexOf(flag) + 1];
+  assert.ok(a.includes("--restricted"));
+  assert.ok(!a.includes("--bare"));
+  assert.equal(val("--tools"), "WebSearch");
+  assert.equal(val("--allowedTools"), "mcp__factory__ask_human,mcp__factory__read_briefing,WebSearch");
+  assert.ok(!a.join(" ").includes("WebFetch"));
+  assert.ok(a.includes("--strict-mcp-config") && a.includes("--disable-slash-commands"));
+  assert.equal(val("--permission-mode"), "dontAsk");
+  const e = cliEnv({ LEVUVO_SF_WEB_SEARCH: "1" });
+  assert.equal(e.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1");
+  assert.equal(e.CLAUDE_CODE_DISABLE_CLAUDE_MDS, "1");
+  assert.equal(e.CLAUDE_CODE_DISABLE_BUNDLED_SKILLS, "1");
+  assert.equal(cliEnv({ LEVUVO_SF_WEB_SEARCH: "0" }).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
+  const off = cliArgs({ ...env, LEVUVO_SF_WEB_SEARCH: "0" }, ["ask_human"], d);
+  assert.ok(off.includes("--bare") && off[off.indexOf("--tools") + 1] === "");
+  assert.throws(() => cliArgs({ ...env, LEVUVO_SF_WEB_SEARCH: "yes" }, ["ask_human"], d), /web search/);
 });
 
 test("CLI arguments: invalid model, effort, turn cap or tool names are refused", () => {

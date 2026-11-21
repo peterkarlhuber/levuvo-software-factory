@@ -74,6 +74,13 @@ const SCRIPTS = {
     () => ["finish_interview", { summary: "Demo." }],
     (h) => (h.at(-1).isError ? mismatch(`finish refused: ${h.at(-1).text}`) : "demo done"),
   ],
+  // web search switched on by the owner: the CLI's WebSearch makes its own model call with Anthropic's server-side
+  // search tool (answered below as `websearch`), and the result may be cited as a web source (scope review finding 4)
+  "e2e-web": [
+    () => ["WebSearch", { query: "European Accessibility Act application date" }],
+    (h) => (h.at(-1).name === "WebSearch" && h.at(-1).text.includes("eur-lex.europa.eu") ? ["update_prd_section", { section: 8, status: "drafted", content: "The European Accessibility Act applies to the booking app.", source: `briefing/notes.md; web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved ${new Date().toISOString().slice(0, 10)})` }] : mismatch(`search result: ${h.at(-1).text.slice(0, 200)}`)),
+    (h) => (h.at(-1).isError ? mismatch(`web source refused: ${h.at(-1).text}`) : "web done"),
+  ],
   "e2e-timeout": [
     () => ["read_briefing", {}],
     () => ["ask_human", { finding: "f", decision_needed: "Wird nie beantwortet?", recommendation: rec }],
@@ -82,13 +89,31 @@ const SCRIPTS = {
 };
 function mismatch(what) { return { mismatch: what }; }
 
+/** The CLI's search call: one server-side search with one result, billed as one search request. */
+function replySearch(res, model) {
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  const ev = (t, d) => res.write(`event: ${t}\ndata: ${JSON.stringify({ type: t, ...d })}\n\n`);
+  ev("message_start", { message: { id: `msg_${Date.now()}`, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 300, output_tokens: 1 } } });
+  ev("content_block_start", { index: 0, content_block: { type: "server_tool_use", id: "srvtoolu_e2e", name: "web_search", input: {} } });
+  ev("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ query: "European Accessibility Act application date" }) } });
+  ev("content_block_stop", { index: 0 });
+  ev("content_block_start", { index: 1, content_block: { type: "web_search_tool_result", tool_use_id: "srvtoolu_e2e", content: [{ type: "web_search_result", url: "https://eur-lex.europa.eu/eli/dir/2019/882/oj", title: "Directive (EU) 2019/882", encrypted_content: "e2e", page_age: null }] } });
+  ev("content_block_stop", { index: 1 });
+  ev("content_block_start", { index: 2, content_block: { type: "text", text: "" } });
+  ev("content_block_delta", { index: 2, delta: { type: "text_delta", text: "The European Accessibility Act applies from 28 June 2025." } });
+  ev("content_block_stop", { index: 2 });
+  ev("message_delta", { delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 30, server_tool_use: { web_search_requests: 1 } } });
+  ev("message_stop", {});
+  res.end();
+}
+
 function reply(res, model, step) {
   res.writeHead(200, { "content-type": "text/event-stream" });
   const ev = (t, d) => res.write(`event: ${t}\ndata: ${JSON.stringify({ type: t, ...d })}\n\n`);
   ev("message_start", { message: { id: `msg_${Date.now()}`, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1200, output_tokens: 1, cache_creation_input_tokens: 300, cache_read_input_tokens: 800 } } });
   if (Array.isArray(step)) {
     const [name, input] = step;
-    const full = name === "Bash" ? name : `mcp__factory__${name}`;
+    const full = name === "Bash" || name === "WebSearch" ? name : `mcp__factory__${name}`;
     ev("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_${Date.now()}${Math.random().toString(16).slice(2, 8)}`, name: full, input: {} } });
     ev("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } });
     ev("content_block_stop", { index: 0 });
@@ -110,6 +135,11 @@ createServer((req, res) => {
     if (req.url.startsWith("/v1/messages/count_tokens")) { res.writeHead(200, { "content-type": "application/json" }); return res.end('{"input_tokens":100}'); }
     if (req.method !== "POST" || !req.url.startsWith("/v1/messages")) { log({ unexpected: `${req.method} ${req.url}` }); res.writeHead(404); return res.end("{}"); }
     const j = JSON.parse(body);
+    const serverTools = (j.tools ?? []).filter((t) => t.type && t.type !== "custom").map((t) => t.type);
+    if (serverTools.length) {
+      log({ project: "websearch", key_ok: keyOk, server_tools: serverTools, ...(serverTools.join() === "web_search_20250305" ? {} : { mismatch: `server tools ${serverTools}` }) });
+      return replySearch(res, j.model);
+    }
     const start = firstUserText(j.messages);
     const found = /\((e2e-[a-z]+|demo-\d+)\)/.exec(start)?.[1] ?? "unknown";
     const project = found.startsWith("demo-") ? "demo" : found;
