@@ -1,6 +1,6 @@
 # Roadmap
 
-One line per item: what it is and where it stands. An item is worked out only when it is due. This file is updated with every building block.
+One line per item: what it is and where it stands. An item is worked out only when it is due. This file is updated with every building block. Not listed: ongoing upkeep (updates of the Claude CLI, Forgejo and images, security fixes, lessons from real projects).
 
 ## Done
 - Concept part A: new project (briefing, interview, PRD, design, skeleton) – PR #1
@@ -20,7 +20,10 @@ One line per item: what it is and where it stands. An item is worked out only wh
 ## Next (V1)
 - iPhone access via Tailscale with sign-in – right after block 3
 - Block 4: the rest of parts A and B (A3–A6, B1–B7) with the CI gates in Forgejo, incl. a "simplest solution that meets the spec" rule in the build and review skills, a complexity limit lint gate, and Playwright browser tests (Chromium + WebKit) in the `nextjs-postgres` stack profile
+- Part D: backlog and prioritization
 - Part C: bug or change
+- V1 check: build a first small real project end to end with the factory
+- Set up the home server (GMKtec NucBox) as a second place to run the factory
 
 ## After V1
 - Stacks discussion (must happen): which stack profiles to add and how – everything possible, but deliberately and targeted
@@ -30,7 +33,8 @@ One line per item: what it is and where it stands. An item is worked out only wh
 - Brainstorm mode: read-only chat about a project; ideas taken go into the backlog through A6
 - Own libraries as dependencies
 - PRD plausibility check before A3 – only if real projects show it is needed
-- Final factory UI design
+- Final factory UI design, ideally built by the factory itself
+- Lift the V1 simplifications: design preview in A4, license and accessibility gates, "test red before code" check blocking, automatic lesson promotion, prompt-injection detection
 - Parallel features
 - GitHub archive mirror
 - iPhone push notifications
