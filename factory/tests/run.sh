@@ -228,6 +228,13 @@ check "after the wait time the run is paused" paused "$(wait_iv e2e-timeout paus
 check "reason: paused_wait_timeout" paused_wait_timeout "$(get /api/projects/e2e-timeout/interview | json 'd.last_exit_reason')"
 post /api/settings '{"ask_human_wait_minutes":10}' PUT >/dev/null
 
+echo "› levuvo-sf demo as the owner runs it (README step 5)"
+# answers like a person: Enter once the question is shown, stdin stays open until the demo has ended
+answer_demo() { for _ in $(seq 1 90); do dc exec -T factory levuvo-sf status 2>/dev/null | grep -q '^demo-.*waiting for Q-' && break; sleep 1; done; printf '\n'; sleep 20; }
+out="$(answer_demo | dc exec -T factory levuvo-sf demo 2>&1 || true)"
+if grep -q "Your answer:" <<< "$out" && grep -q "^Interview paused (ended_without_finish)" <<< "$out" && grep -qE "^Tokens: [1-9][0-9]* in" <<< "$out"; then ok "demo: question, answer, end with usage"; else bad "demo: question, answer, end with usage ($(tail -5 <<< "$out" | tr '\n' ' '))"; fi
+check "status lists the demo project" 1 "$(dc exec -T factory levuvo-sf status | grep -c '^demo-')"
+
 echo "› the API key appears nowhere else"
 if dc logs 2>&1 | grep -qF "$TEST_KEY"; then bad "the API key is in no container log"; else ok "the API key is in no container log"; fi
 if dc exec -T factory sh -c "grep -rqsF '$TEST_KEY' /var/lib/levuvo /run/levuvo"; then bad "the API key is nowhere in the factory's data"; else ok "the API key is nowhere in the factory's data"; fi

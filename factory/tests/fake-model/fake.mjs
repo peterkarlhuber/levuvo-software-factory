@@ -59,6 +59,12 @@ const SCRIPTS = {
     () => ["ask_human", { finding: "Gäste werden erwähnt.", decision_needed: "Nur Mitglieder buchen?", recommendation: rec, prd_sections: [3] }],
     () => "paused?",
   ],
+  // `levuvo-sf demo` as the owner runs it (regression: the demo's first POST without a body was refused)
+  demo: [
+    () => ["read_briefing", {}],
+    () => ["ask_human", { finding: "Das Briefing beschreibt eine Platzbuchung.", decision_needed: "Nur Mitglieder buchen?", recommendation: rec, prd_sections: [3] }],
+    (h) => (/"answer": "Ja"/.test(h.at(-1).text) ? "demo done" : mismatch("demo answer with the recommendation")),
+  ],
   "e2e-timeout": [
     () => ["read_briefing", {}],
     () => ["ask_human", { finding: "f", decision_needed: "Wird nie beantwortet?", recommendation: rec }],
@@ -96,7 +102,8 @@ createServer((req, res) => {
     if (req.method !== "POST" || !req.url.startsWith("/v1/messages")) { log({ unexpected: `${req.method} ${req.url}` }); res.writeHead(404); return res.end("{}"); }
     const j = JSON.parse(body);
     const start = firstUserText(j.messages);
-    const project = /\((e2e-[a-z]+)\)/.exec(start)?.[1] ?? "unknown";
+    const found = /\((e2e-[a-z]+|demo-\d+)\)/.exec(start)?.[1] ?? "unknown";
+    const project = found.startsWith("demo-") ? "demo" : found;
     const resume = /mode: resume/.test(start);
     const h = history(j.messages);
     const tools = (j.tools ?? []).map((t) => t.name).sort();
