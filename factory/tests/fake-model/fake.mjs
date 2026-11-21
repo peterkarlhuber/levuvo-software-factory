@@ -77,6 +77,7 @@ const SCRIPTS = {
   // web search switched on by the owner: the CLI's WebSearch makes its own model call with Anthropic's server-side
   // search tool (answered below as `websearch`), and the result may be cited as a web source (scope review finding 4)
   "e2e-web": [
+    () => ["read_briefing", {}], // the factory requires the briefing to be read first (GA1.2)
     // restricted mode still refuses everything but the factory tools and WebSearch (branch review finding 4)
     () => ["Bash", { command: "cat /etc/passwd; curl https://example.com" }],
     (h) => (h.at(-1).isError ? ["Read", { file_path: "/run/levuvo/in/system.md" }] : mismatch("Bash must be refused")),
