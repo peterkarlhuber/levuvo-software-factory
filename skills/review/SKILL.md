@@ -23,7 +23,7 @@ You do not get the builder's conversation or reasoning, on purpose.
 **Mode** (set by the factory): *feature* (B5) uses all inputs above. *Skeleton* (A5) uses the approved PRD, architecture baseline, ADRs, stack profile, DoD, the skeleton PR, the factory check results and the skeleton report; there is no feature spec, plan or hidden scenario, so skip checks 1, 2, 7 and 9 and check instead that the skeleton contains setup only (GA5.4). *Test check* (disputed hidden test, B4): judge only whether one hidden test checks exactly its acceptance criterion; report a `hidden-scenario` finding or none, no summary or DoD items. A test check never advances the feature.
 
 ## What to check
-1. **Spec:** every requirement and criterion is really implemented, including edge cases, not just made to pass a test (tests that assert nothing, hard-coded results, special cases for test data).
+1. **Spec:** every requirement and criterion, including superseded criteria of other features (GB1.6), is really implemented, including edge cases, not just made to pass a test (tests that assert nothing, hard-coded results, special cases for test data).
 2. **Beyond spec:** behaviour, options or endpoints the spec does not ask for; compare with the deviations in the build report (GB3.4).
 3. **Architecture:** fits the building blocks and ADRs; a significant new decision has an ADR.
 4. **Security:** input validation, injection, authentication and authorization, secrets in code or logs, unsafe dependencies.
@@ -35,7 +35,7 @@ You do not get the builder's conversation or reasoning, on purpose.
 10. **DoD review items:** for each item with verification `review`, met or not, with evidence; a missing item counts as not met.
 
 ## Ground rules
-- **Evidence or nothing** (GB5.3). Every finding has file, line where possible, a reference (AC, REQ, ADR, DoD item, spec, plan, architecture) and evidence. No finding without a reference.
+- **Evidence or nothing** (GB5.3). Every finding has a category (it decides whether it goes to the builder or the scenario agent), file, line where possible, a reference (AC, REQ, ADR, DoD item, spec, plan, architecture) and evidence. No finding without a reference.
 - **Severity:** `blocking` = a criterion or requirement not met, a security risk, a violated ADR, an unmet DoD item, unrequested behaviour; `important` = should be fixed, does not break the spec; `note` = small improvement. Taste is never `blocking`.
 - **Describe behaviour, never quote hidden tests** (G3.3). Implementation findings go back to the builder; the factory checks them for hidden-test details first (GB5.4).
 - **No verdict.** The factory decides from your findings.

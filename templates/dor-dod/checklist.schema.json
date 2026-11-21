@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:dor-dod:0.1",
+  "$id": "urn:levuvo:sf:schema:dor-dod:0.2",
   "title": "Levuvo SF Definition of Ready / Definition of Done (A5, GA5.2, R4, R8)",
   "description": "Proposed by the factory from the stack profile, approved by the human, stored in the factory (not in agent-writable project content). Only items with mandatory: true and verification: automated generate mandatory gates; mandatory review and human items are enforced at their workflow transitions. A schema-valid checklist is not approved until the factory records the human's approval of this exact version (GA5.2).",
   "type": "object",
@@ -65,7 +65,7 @@
           },
           "gate": {
             "type": "object",
-            "description": "Required for automated items; run by the factory in its own container (G5.3).",
+            "description": "Required for automated DoD items; run by the factory in its own container (G5.3). Automated DoR items are checked by check_ready on the spec draft and need no gate.",
             "required": [
               "name",
               "command",
@@ -92,18 +92,6 @@
             },
             "additionalProperties": false
           }
-        },
-        "if": {
-          "properties": {
-            "verification": {
-              "const": "automated"
-            }
-          }
-        },
-        "then": {
-          "required": [
-            "gate"
-          ]
         },
         "additionalProperties": false
       }
@@ -149,6 +137,18 @@
                 "id": {
                   "pattern": "^DOD-[0-9]+$"
                 }
+              },
+              "if": {
+                "properties": {
+                  "verification": {
+                    "const": "automated"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "gate"
+                ]
               }
             }
           }

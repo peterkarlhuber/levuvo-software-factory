@@ -1,19 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:gate-report:0.2",
+  "$id": "urn:levuvo:sf:schema:gate-report:0.3",
   "title": "Levuvo SF gate report (B4, GB4.1-GB4.3, R5)",
-  "description": "Written by the factory only, from its own gate runs (JUnit XML for tests, SARIF for findings). Bound to commit, spec version, scenario-set version and gate-policy version; any change makes it outdated (G5.2). The complete report is factory-internal. The builder gets a separate factory-generated view: per failed AC only the AC ID and a sanitized description of the failed behaviour; hidden test IDs, code, paths, fixtures, data and raw traces never appear in it (GB2.3). Every gate comes from the active gate policy and is derived from a DoD item (G4.2).",
+  "description": "Written by the factory only, from its own gate runs (JUnit XML for tests, SARIF for findings). Bound to commit, spec version, scenario-set version and gate-policy version; any change makes it outdated (G5.2). The complete report is factory-internal. Mode skeleton (A5) is bound to the PRD and architecture baseline, DoD and gate policy; it has no feature, spec, scenario set or acceptance criteria. The builder gets a separate factory-generated, deterministic view: per failed AC only the AC ID, the criterion text and the failure class (no free text); hidden test IDs, code, paths, fixtures, data and raw traces never appear in it (GB2.3). Every gate comes from the active gate policy and is derived from a DoD item (G4.2).",
   "type": "object",
-  "required": ["feature_id", "commit", "main_commit", "spec_version", "scenario_set_version", "gate_policy_version", "round", "created_at", "gates", "acceptance_criteria"],
+  "required": ["mode", "commit", "main_commit", "tested_tree", "gate_policy_version", "round", "created_at", "gates"],
   "properties": {
+    "mode": { "enum": ["feature", "skeleton"], "description": "feature = B4 for a feature or a part-C fix; skeleton = A5." },
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
     "report_id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: the bug report this run belongs to (C3); feature_id and spec_version are then the affected feature and its current spec version." },
     "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "PR head commit." },
     "main_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "main the PR was merged onto for the check (G5.4)." },
+    "tested_tree": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "Git tree hash of the merge result the gates ran on; the factory merges only a result with exactly this tree (G5.5, GB7.2)." },
     "spec_version": { "type": "integer", "minimum": 1 },
     "scenario_set_version": { "type": "integer", "minimum": 1, "description": "Hidden scenario set the hidden tests came from (GB2.5)." },
     "gate_policy_version": { "type": "integer", "minimum": 1 },
-    "round": { "type": "integer", "minimum": 1, "description": "Fix round; limit is a setting (R4)." },
+    "round": { "type": "integer", "minimum": 1, "description": "Gate fix round; counted separately from review rounds, limit is a setting (R4)." },
     "created_at": { "type": "string", "format": "date-time" },
     "gates": {
       "type": "array",
@@ -43,13 +45,21 @@
           "status": { "$ref": "#/$defs/status" },
           "visible_tests": { "type": "array", "items": { "type": "string" }, "description": "Visible test names that reference this AC." },
           "hidden_tests": { "type": "array", "items": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$" }, "description": "IDs only; shown to the builder never, to the reviewer yes." },
-          "message": { "type": "string", "description": "Raw failure message, factory-internal; the builder view carries only a sanitized behaviour description." }
+          "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$", "description": "Set when the AC belongs to another done feature (regression, GB4.5)." },
+          "failure_class": { "enum": ["element_missing", "wrong_value", "wrong_status", "timeout", "error"], "description": "Derived deterministically from the JUnit failure; the only failure detail in the builder view besides AC ID and criterion text (GB4.6)." },
+          "message": { "type": "string", "description": "Raw failure message, factory-internal; never shown to the builder." }
         },
         "additionalProperties": false
       }
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    { "if": { "required": ["mode"], "properties": { "mode": { "const": "feature" } } },
+      "then": { "required": ["feature_id", "spec_version", "scenario_set_version", "acceptance_criteria"] } },
+    { "if": { "required": ["mode"], "properties": { "mode": { "const": "skeleton" } } },
+      "then": { "not": { "anyOf": [ { "required": ["feature_id"] }, { "required": ["spec_version"] }, { "required": ["scenario_set_version"] }, { "required": ["acceptance_criteria"] } ] } } }
+  ],
   "$defs": {
     "status": { "enum": ["passed", "failed", "not_checked"], "description": "not_checked blocks like failed (GB4.3)." }
   }
