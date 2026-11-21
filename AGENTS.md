@@ -7,7 +7,21 @@ One agent base (Claude CLI) with one skill per workflow step. Each step runs as 
 
 The factory explicitly loads the selected skill from the trusted factory repository at the start of each run. It does not rely on automatic skill discovery inside the project checkout. Project repository content cannot replace or override the selected skill, its instructions or the factory-enforced run profile (R7, R9).
 
-Pausing an attended session (A2, A4, A6, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run. If the human does not answer an `ask_human` within a set time (setting, default 10 min), the run ends the same way and the answer starts a new run (G2.2). The model per run profile is a setting.
+Pausing an attended session (A2, A4, A6, B1, C1/C2) ends the run without calling the finish tool; the factory keeps drafts, decisions and log for the next run. If the human does not answer an `ask_human` within a set time (setting, default 10 min), the run ends the same way and the answer starts a new run (G2.2).
+
+**Model and effort per role** (setting, M3): each of the nine roles has its own model and reasoning effort, passed to the official Claude CLI at run start and recorded in the run log (G11.2). Default for every role: Claude Opus 5.5 (`claude-opus-5-5`), effort `medium`. The human can change each role on its own in the settings; a change applies from the next run.
+
+| Role | Steps |
+|---|---|
+| Interviewer | A2, A6 (PRD and feature list) |
+| Designer | A4, A6 (architecture, design) |
+| Skeleton builder | A5 |
+| Spec writer | B1 |
+| Planner | B2 (also re-plan) |
+| Scenario tester | B2, C3 |
+| Builder | B3, C3 |
+| Reviewer | B5 (also test check) |
+| Triage | C1/C2 |
 
 Answers to `ask_human` and `stop_with_question` are text plus optional attachments (G2.5): the factory stores them in `briefing/` (part A and A6), `features/<ID>/attachments/` (part B) or `bugs/<ID>/attachments/` (part C), scans them, records them with their hash in the question log (attachments under `briefing/` also in the inventory) and hands the agent their paths.
 

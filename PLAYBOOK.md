@@ -96,7 +96,7 @@ Before the human decides, every PR comes with a short acceptance package. Defaul
 ## Part 3 – Security and integrity
 
 ### R7 – Least privilege and sandbox
-Every run executes in its own hardened container that is destroyed afterwards. It gets only the access and data its phase needs and no human credentials. Template: run profile per phase; the model per run profile is a setting (M3).
+Every run executes in its own hardened container that is destroyed afterwards. It gets only the access and data its phase needs and no human credentials. Template: run profile per phase; model and reasoning effort per agent role are settings (M3; default Claude Opus 5.5 with effort medium for every role, see AGENTS.md).
 
 - G7.1 [Enforced] No root, all Linux capabilities dropped, no Docker socket, memory/CPU/process limits.
 - G7.2 [Enforced] Network only through the factory's egress proxy with an allowlist.
@@ -164,7 +164,7 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 The human can always see where every feature stands and why. Agents report phase changes and longer steps (not every small step). Every run is traceable afterwards.
 
 - G11.1 [Enforced] Status changes come only from the factory's state machine; agents report through a tool and cannot set a status.
-- G11.2 [Enforced] The factory logs every run itself (start, end, phase, role, model, billing mode, tokens, cost, exit reason, commit, spec version). Agents cannot write or change this log.
+- G11.2 [Enforced] The factory logs every run itself (start, end, phase, role, model, effort, billing mode, tokens, cost, exit reason, commit, spec version). Agents cannot write or change this log.
 - G11.3 [Enforced] Every artifact is linked to the run that produced it.
 - G11.4 [Enforced] Access and retention rules for logs, reports and packages. [Verified] Detection and removal of credentials and restricted data.
 - G11.5 [Enforced] Simple provenance: every build artifact is linked to source revision, inputs, factory build identity and results (no SLSA level claimed).
@@ -187,7 +187,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
-- 0.6.2 (2026-11-21): Workflow part D: backlog added to the template list; MoSCoW marked preliminary, the backlog sets the work order.
+- 0.6.2 (2026-11-21): Workflow part D: backlog added to the template list; MoSCoW marked preliminary, the backlog sets the work order. Model and reasoning effort per agent role as settings (default Opus 5.5, effort medium), effort logged per run (G11.2).
 - 0.6.1 (2026-11-21): Billing modes *API* (default) and *subscription*, switchable by a setting; subscription only through the official CLI with the human's `setup-token`, an approved exception to keeping credentials out of containers (G7.4); estimated cost in subscription mode (G12.1); billing mode logged per run (G11.2). V1 marks: pointer to the version 1 scope (WORKFLOW.md); prompt-injection detection instructed only (R9); cost warning and brake default to no limit (G12.2).
 - 0.6.0 (2026-11-21): Self-audit: G2.2 bounded wait in attended sessions; G2.5 attachment folders per part; G4.3 separate gate and review rounds; G5.2 factory-only commits keep the review; G5.4 deterministic re-review rule; G5.5 tree hash, version number set at merge; G7.3 factory pushes; G7.4 model API key only in the proxy; G13.1 oscillation, G13.5 per-run turn cap as a setting; model per run profile as a setting; spec travels with the code, approved vs released, at most one open version per feature (G1.5, G1.1, G1.3); the human approves only spec text they have seen (G2.4); term stack profile; G5.3 gate containers without Docker socket; G8.2 gate commands from the stack profile, results judged by the factory; stack profile added to the template list. ChatGPT re-audit: version number set before the final checks (G5.5); gate-affecting files listed in the stack profile (G8.2); attachments outside `briefing/` tracked in the question log (G2.5).
 - 0.5.0 (2026-11-21): Workflow part C: IEEE 1044 added to the standards table (bug report fields); bug report and lessons learned added to the template list; standards steps extended to C.
