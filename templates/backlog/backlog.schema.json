@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:backlog:0.1",
+  "title": "Levuvo SF backlog (D1-D3)",
+  "description": "backlog.json in the project repo root. Written only by the factory (GD3.1); the order of entries is the priority, changed only by the human in the UI (GD3.2). Read by agents and the UI.",
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "description": "Incremented by the factory with every change; a reorder from the UI is accepted only for the version the UI showed." },
+    "entries": {
+      "type": "array",
+      "description": "Order = priority, top first. New entries are appended at the end.",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["ref", "kind", "title", "summary", "status"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^(F|BUG)-[0-9]{3,}$", "description": "Feature ID (features.json, spec in features/<ID>/) or report ID (bugs/<ID>/). Unique in the backlog." },
+        "kind": { "enum": ["feature", "change", "bug"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Short description, one or two sentences." },
+        "status": { "enum": ["open", "in_progress", "done", "discarded"] },
+        "pr": { "type": "string", "format": "uri", "pattern": "^https?://", "description": "Link to the merged PR; required when done." },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Why the human discarded the entry; required when discarded." }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "feature" } } }, "then": { "properties": { "ref": { "pattern": "^F-" } } }, "else": { "properties": { "ref": { "pattern": "^BUG-" } } } },
+        { "if": { "properties": { "status": { "const": "done" } } }, "then": { "required": ["pr"] }, "else": { "not": { "required": ["pr"] } } },
+        { "if": { "properties": { "status": { "const": "discarded" } } }, "then": { "required": ["reason"] }, "else": { "not": { "required": ["reason"] } } }
+      ]
+    }
+  }
+}

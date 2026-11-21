@@ -225,5 +225,22 @@ case(v,mut(prof,lambda x:x['commands'].pop('start')),False,"stack profile withou
 case(v,mut(prof,lambda x:x['tests'].update(fresh_services_per_run=False)),False,"stack profile without fresh services")
 case(v,mut(prof,lambda x:x.pop('gate_config')),False,"stack profile without gate_config")
 case(v,mut(prof,lambda x:x.update(generator="npx create-next-app@latest .")),False,"stack profile with unpinned generator")
+v=V('backlog/backlog.schema.json')
+bl={"version":4,"entries":[
+ {"ref":"F-001","kind":"feature","title":"Book a table","summary":"Guests book a table online.","status":"done","pr":"http://forgejo.local/levuvo/demo/pulls/3"},
+ {"ref":"BUG-002","kind":"bug","title":"Date off by one","summary":"Bookings after 23:00 show the next day.","status":"in_progress"},
+ {"ref":"BUG-003","kind":"change","title":"Longer name field","summary":"Allow 80 characters for the guest name.","status":"open"},
+ {"ref":"F-004","kind":"feature","title":"Waiting list","summary":"Guests join a waiting list when full.","status":"discarded","reason":"Not needed this season."}]}
+case(v,bl,True,"backlog valid")
+case(v,{"version":1,"entries":[]},True,"backlog empty")
+case(v,mut(bl,lambda x:x['entries'][0].pop('pr')),False,"backlog done without PR")
+case(v,mut(bl,lambda x:x['entries'][3].pop('reason')),False,"backlog discarded without reason")
+case(v,mut(bl,lambda x:x['entries'][2].update(pr="http://forgejo.local/x/pulls/9")),False,"backlog open with PR")
+case(v,mut(bl,lambda x:x['entries'][2].update(reason="x")),False,"backlog open with reason")
+case(v,mut(bl,lambda x:x['entries'][1].update(kind="feature")),False,"backlog feature with report ref")
+case(v,mut(bl,lambda x:x['entries'][0].update(kind="bug")),False,"backlog bug with feature ref")
+case(v,mut(bl,lambda x:x['entries'][2].update(status="blocked")),False,"backlog bad status")
+case(v,mut(bl,lambda x:x['entries'][2].update(priority=1)),False,"backlog no priority field")
+case(v,mut(bl,lambda x:x.pop('version')),False,"backlog without version")
 print(f"{ok} passed, {bad} failed")
 sys.exit(1 if bad else 0)
