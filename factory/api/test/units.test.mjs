@@ -166,7 +166,7 @@ test("forgejo: private repo, protected main; removed again when protection fails
   srv.close();
 });
 
-test("docker wait survives a connection cut AFTER the response headers, and a silent one (regression: a 15-minute interview hung after its run had ended)", async () => {
+test("docker wait survives a connection cut AFTER the response headers, and a silent one (regression: a 15-minute interview hung after its run had ended)", { timeout: 5000 }, async () => {
   let waits = 0;
   let running = true;
   const srv = createServer((req, res) => {
