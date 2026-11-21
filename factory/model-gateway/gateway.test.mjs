@@ -88,6 +88,13 @@ test("usage meter: streaming with cache tokens, JSON, and incomplete streams", (
   const bad = new UsageMeter("application/json");
   bad.push(Buffer.from("<html>"));
   assert.equal(bad.end().complete, false);
+  // branch review finding 7: an ended stream or JSON reply without token counts is unknown, never zero
+  const noUsage = new UsageMeter("text/event-stream");
+  noUsage.push(Buffer.from('event: message_start\ndata: {"type":"message_start","message":{"model":"m"}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n'));
+  assert.equal(noUsage.end().complete, false);
+  const jNoOut = new UsageMeter("application/json");
+  jNoOut.push(Buffer.from(JSON.stringify({ model: "m", usage: { input_tokens: 5 } })));
+  assert.equal(jNoOut.end().complete, false);
 });
 
 test("forwards with the real key, streams back and records usage", async () => {

@@ -138,6 +138,15 @@ export function createInterview({ dataDir, briefing, validator, settings }) {
     if (iv.status === "idle" || iv.status === "finished") return;
     if (!iv.outdated.includes(changedPath)) iv.outdated.push(changedPath);
     iv.log.status = "outdated";
+    // sections the human settled on the basis of this file must be confirmed again (branch review finding 3)
+    for (const s of Object.values(iv.prd)) {
+      if ((s.status === "confirmed" || s.status === "deferred") && s.source.split(";").map((x) => x.trim()).includes(changedPath)) {
+        s.status = "drafted";
+        delete s.answer_ref;
+        s.reopened_by = changedPath;
+      }
+    }
+    iv.change_seq += 1; // a closing question asked before this change no longer counts
     save(slug, iv);
   }
 
@@ -163,6 +172,7 @@ export function createInterview({ dataDir, briefing, validator, settings }) {
     if (!v(args)) return err(`Invalid input for ${tool}: ${v.errors.slice(0, 5).map((e) => `${e.instancePath || "(input)"} ${e.message}`).join("; ")}`);
     const iv = load(slug);
     if (iv.active_run !== run.id) return err("This run is no longer the active run of the interview; stop now.");
+    if (iv.status === "finished") return err("The interview is finished; no more changes. Stop now.");
     if (tool !== "read_briefing" && !iv.log.inventory_version_read) return err("Read the briefing first: call read_briefing without a path (GA1.2).");
     const note = iv.outdated.length && tool !== "read_briefing" ? `\n\nNote: the briefing changed since you read it: ${iv.outdated.join(", ")}. Read these files again and re-confirm affected sections.` : "";
     const withNote = (r) => (note && r.content?.[0]?.type === "text" ? { ...r, content: [{ type: "text", text: r.content[0].text + note }, ...r.content.slice(1)] } : r);

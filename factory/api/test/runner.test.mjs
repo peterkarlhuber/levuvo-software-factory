@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,11 +34,11 @@ function fakeDocker(script) {
     stop: async (id) => { const c = containers.get(id); c.stopped = true; c.exit(143); },
     remove: async (id) => { containers.get(id).removed = true; },
     logs: async () => ({ stdout: '{"type":"system","subtype":"init","tools":["mcp__factory__ask_human"]}\n{"type":"result","subtype":"success","is_error":false}\n', stderr: "" }),
-    list: async () => [...containers].filter(([, c]) => !c.removed).map(([Id]) => ({ Id })),
+    list: async () => [...containers].filter(([, c]) => !c.removed).map(([Id, c]) => ({ Id, Labels: c.spec.Labels })),
   };
 }
 
-async function world(script, settingsPatch = {}) {
+async function world(script, settingsPatch = {}, { scan = async () => 0 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "rw-"));
   const dirs = { data: join(root, "data"), runs: join(root, "runs"), tokens: join(root, "tokens"), usage: join(root, "usage") };
   for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
@@ -54,7 +54,7 @@ async function world(script, settingsPatch = {}) {
   writeFileSync(join(skillsDir, "interview", "SKILL.md"), "# Interview skill");
   const prices = { version: "t", models: { "claude-opus-5-5": { input: 4, output: 20, cache_write: 5, cache_read: 0.2 } } };
   const logs = [];
-  const runner = createRunner({ dirs, docker, interview, briefing, settings: settings.get, prices, project: projects.get, lock: createLocks(), skillsDir, composeProject: "levuvo-sf-test", log: (o) => logs.push(o), pollMs: 20 });
+  const runner = createRunner({ dirs, docker, interview, briefing, settings: settings.get, prices, project: projects.get, lock: createLocks(), skillsDir, composeProject: "levuvo-sf-test", log: (o) => logs.push(o), pollMs: 20, scan });
   const api = createApi({ port: 3100, projects, briefing, interview, runner, settings });
   await new Promise((r) => api.listen(0, "127.0.0.1", r));
   const call = (method, path, body, headers = {}) => new Promise((resolve, reject) => {
@@ -255,9 +255,111 @@ test("start checks: empty briefing, failed container start; restart recovery", a
   w.interview.save("tennis-club", iv);
   writeJson(join(w.dirs.data, "runs", "run-ghost1", "run.json"), { run_id: "run-ghost1", ended_at: null });
   writeFileSync(join(w.dirs.tokens, "deadbeef"), "{}");
+  writeFileSync(join(w.dirs.usage, "run-ghost1.jsonl"), JSON.stringify({ status: 200, model: "claude-opus-5-5", complete: true, input_tokens: 1000, output_tokens: 10 }) + "\n");
+  w.docker.containers.set("cghost", { spec: { Labels: { "dev.levuvo-sf.run": "run-ghost1" } }, removed: false });
   await w.runner.recover(["tennis-club"]);
   assert.equal(w.interview.load("tennis-club").last_exit_reason, "factory_restarted");
-  assert.equal(w.runner.runRecord("run-ghost1").exit_reason, "factory_restarted");
+  const ghost = w.runner.runRecord("run-ghost1");
+  assert.equal(ghost.exit_reason, "factory_restarted");
+  assert.equal(ghost.usage.input_tokens, 1000, "usage kept (branch review finding 4)");
+  assert.equal(ghost.usage.cost_is_lower_bound, true);
+  assert.ok(existsSync(join(w.dirs.data, "runs", "run-ghost1", "transcript.jsonl")), "transcript of the leftover container kept");
+  assert.equal(w.docker.containers.get("cghost").removed, true);
   assert.deepEqual(readdirSync(w.dirs.tokens), []);
+  w.api.close();
+});
+
+const waitEnd = async (w, slug = "tennis-club") => { for (let i = 0; i < 300 && w.runner.isActive(slug); i++) await sleep(10); };
+
+test("the tool channel refuses links and stops a run whose folders were replaced (branch review finding 5)", async () => {
+  let linkResult;
+  const w = await world(async ({ runId }) => {
+    const io = join(w.dirs.runs, runId, "io");
+    assert.equal(statSync(join(io, "req")).mode & 0o7777, 0o1733, "req: create only, sticky");
+    assert.equal(statSync(join(io, "res")).mode & 0o7777, 0o755, "res: read only for the run");
+    // a request that is a link to a file of the factory
+    writeFileSync(join(w.dirs.data, "secret.json"), '"factory-only content"');
+    symlinkSync(join(w.dirs.data, "secret.json"), join(io, "req", "abc-111111111111.json"));
+    for (let i = 0; i < 100 && !existsSync(join(io, "res", "abc-111111111111.json")); i++) await sleep(10);
+    linkResult = readFileSync(join(io, "res", "abc-111111111111.json"), "utf8");
+    // the answer folder replaced by a link: the factory stops the run instead of writing through it
+    rmSync(join(io, "res"), { recursive: true });
+    symlinkSync(w.dirs.data, join(io, "res"));
+    await new Promise(() => {});
+  });
+  await newProject(w);
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  await waitEnd(w);
+  assert.match(linkResult, /not a regular file/);
+  assert.doesNotMatch(linkResult, /factory-only/);
+  const id = w.interview.load("tennis-club").log.runs[0].run_id;
+  assert.equal(w.runner.runRecord(id).exit_reason, "channel_tampered");
+  assert.ok(!readdirSync(w.dirs.data).some((f) => f.endsWith(".json") && f.startsWith("abc-")), "nothing written into the factory's data");
+  w.api.close();
+});
+
+test("the same failing call three times in a row stops the run (G13.1, branch review finding 10)", async () => {
+  const w = await world(async ({ runId }) => {
+    await tool(w.dirs, runId, "read_briefing", {});
+    for (let i = 0; i < 3; i++) await tool(w.dirs, runId, "read_briefing", { path: "briefing/missing.md" });
+    await new Promise(() => {});
+  });
+  await newProject(w);
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  await waitEnd(w);
+  const iv = w.interview.load("tennis-club");
+  assert.equal(iv.last_exit_reason, "repeated_failure");
+  assert.equal(iv.log.runs[0].end_reason, "failed");
+  w.api.close();
+});
+
+test("token renewed while the run lives; docker compose stop ends runs cleanly (branch review findings 8 and 2)", async () => {
+  const w = await world(async ({ runId }) => {
+    await tool(w.dirs, runId, "read_briefing", {});
+    tool(w.dirs, runId, "ask_human", { finding: "f", decision_needed: "d", recommendation: { answer: "a", reason: "r" } });
+    await new Promise(() => {});
+  }, { ask_human_wait_minutes: 1440 });
+  await newProject(w);
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  for (let i = 0; i < 200 && w.interview.load("tennis-club").status !== "waiting_for_human"; i++) await sleep(10);
+  const [tok] = readdirSync(w.dirs.tokens);
+  const left = Date.parse(JSON.parse(readFileSync(join(w.dirs.tokens, tok), "utf8")).expires_at) - Date.now();
+  assert.ok(left > 24 * 3600_000, "valid beyond the longest allowed wait");
+  const ids = await w.runner.shutdown();
+  assert.equal(ids.length, 1);
+  assert.equal(w.runner.isActive("tennis-club"), false);
+  assert.deepEqual(readdirSync(w.dirs.tokens), [], "token revoked");
+  assert.ok([...w.docker.containers.values()].every((c) => c.removed), "container removed");
+  assert.equal(w.runner.runRecord(ids[0]).exit_reason, "factory_stopped");
+  const iv = w.interview.load("tennis-club");
+  assert.equal(iv.status, "paused");
+  assert.equal(iv.log.runs[0].end_reason, "paused");
+  w.api.close();
+});
+
+test("agent outputs and the transcript are secret-scanned at the end; findings are shown, nothing changed (branch review finding 9)", async () => {
+  const w = await world(async ({ runId }) => {
+    await tool(w.dirs, runId, "read_briefing", {});
+    await tool(w.dirs, runId, "update_prd_section", { section: 1, status: "drafted", content: "key AKIA-LIKE", source: "briefing/notes.md" });
+    return 0;
+  }, {}, { scan: async (buf) => (buf.toString().includes("AKIA-LIKE") ? 1 : 0) });
+  await newProject(w);
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  await waitEnd(w);
+  const view = (await w.call("GET", "/api/projects/tennis-club/interview")).body;
+  assert.equal(view.output_secret_scan.status, "findings");
+  assert.equal(view.prd[1].content, "key AKIA-LIKE", "nothing changed silently");
+  assert.equal(w.runner.runRecord(view.log.runs[0].run_id).output_secret_scan.findings, 1);
+  w.api.close();
+});
+
+test("parallel briefing uploads both land in the inventory (branch review finding 6)", async () => {
+  const w = await world(async () => 0);
+  await newProject(w);
+  const up = (name) => w.call("PUT", "/api/projects/tennis-club/briefing", { path: name, content_base64: Buffer.from(`content of ${name}`).toString("base64") });
+  const rs = await Promise.all(["a.md", "b.md", "c.md", "d.md"].map(up));
+  assert.ok(rs.every((r) => r.status === 200));
+  const inv = (await w.call("GET", "/api/projects/tennis-club/briefing")).body;
+  assert.deepEqual(inv.files.map((f) => f.path).sort(), ["briefing/a.md", "briefing/b.md", "briefing/c.md", "briefing/d.md", "briefing/notes.md"]);
   w.api.close();
 });

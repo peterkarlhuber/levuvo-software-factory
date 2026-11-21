@@ -103,7 +103,7 @@ export class UsageMeter {
     try { e = JSON.parse(data); } catch { return; }
     if (e.type === "message_start") { this.model = e.message?.model ?? null; Object.assign(this.usage, pickUsage(e.message?.usage)); }
     else if (e.type === "message_delta") Object.assign(this.usage, pickUsage(e.usage));
-    else if (e.type === "message_stop") this.complete = true;
+    else if (e.type === "message_stop") this.stopped = true;
   }
   end() {
     if (!this.sse) {
@@ -113,6 +113,9 @@ export class UsageMeter {
         if (j.usage) { this.usage = pickUsage(j.usage); this.complete = true; }
       } catch { /* not JSON: incomplete */ }
     }
+    // complete only with the end of the message AND the token counts that bill it (branch review finding 7)
+    if (this.sse) this.complete = this.stopped === true && Number.isInteger(this.usage.input_tokens) && Number.isInteger(this.usage.output_tokens);
+    else this.complete = this.complete && Number.isInteger(this.usage.input_tokens) && Number.isInteger(this.usage.output_tokens);
     return { model: this.model, complete: this.complete, ...this.usage };
   }
 }

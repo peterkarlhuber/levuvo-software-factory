@@ -5,16 +5,32 @@
 // End: finished, paused (by the human or after the ask_human wait time), idle stop, turn cap, model error or exit.
 // The container is removed, the token revoked, the usage summed and one run record written. Agents never write it.
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { scanText } from "./briefing.mjs";
 import { readJson, writeAtomic, writeJson } from "./store.mjs";
 import { runContainerSpec, LABEL } from "./docker.mjs";
 import { TOOLS, startPrompt } from "./interview.mjs";
 import { readUsage, summarize } from "./usage.mjs";
 
 const MAX_REQUEST = 256 * 1024;
-const TOKEN_HOURS = 12;
+const TOKEN_SPARE_MS = 3600_000; // the token stays valid this long beyond the wait and idle times; renewed on activity
+const REPEAT_LIMIT = 3; // the same failing tool call this often in a row stops the run (G13.1)
 
-export function createRunner({ dirs, docker, interview, briefing, settings, prices, project: projectOf, lock, skillsDir, composeProject, log = () => {}, pollMs = 250 }) {
+/** A real directory, not a symbolic link (the run's tool channel, branch review finding 5). */
+function realDir(p) { try { const s = lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } }
+
+/** Reads one request file without following links; only regular files up to `max` bytes. */
+function readRequest(p, max) {
+  const fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error("not a regular file");
+    if (st.size > max) throw new Error("request too large");
+    return readFileSync(fd);
+  } finally { closeSync(fd); }
+}
+
+export function createRunner({ dirs, docker, interview, briefing, settings, prices, project: projectOf, lock, skillsDir, composeProject, log = () => {}, pollMs = 250, scan = scanText }) {
   const active = new Map(); // runId -> { slug, containerId, pending: Map(reqId -> question), timers, stopReason, seen: Set }
 
   const runPath = (id) => `${dirs.data}/runs/${id}/run.json`;
@@ -61,12 +77,13 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       };
       // the run's folders: `in` (read-only for the run) and `io` (its only writable place)
       const base = `${dirs.runs}/${id}`;
-      for (const d of ["in", "io/req", "io/res"]) mkdirSync(`${base}/${d}`, { recursive: true, mode: 0o755 });
+      // the run's user (1001) can only create files in io/req (sticky, no listing) and only read io/res; it cannot
+      // replace either folder or plant links where the factory writes (branch review finding 5)
+      for (const [d, mode] of [["in", 0o755], ["io", 0o755], ["io/req", 0o1733], ["io/res", 0o755]]) { mkdirSync(`${base}/${d}`, { recursive: true }); chmodSync(`${base}/${d}`, mode); }
       writeFileSync(`${base}/in/system.md`, skill);
       writeFileSync(`${base}/in/prompt.md`, startPrompt({ project, iv, inventory: inv, lang: s.human_language }));
       writeFileSync(`${base}/in/tools.json`, JSON.stringify(TOOLS));
       const token = randomBytes(32).toString("hex");
-      writeAtomic(tokenFile(token), JSON.stringify({ run_id: id, expires_at: new Date(Date.now() + TOKEN_HOURS * 3600_000).toISOString() }), 0o644);
       const waitMs = s.ask_human_wait_minutes * 60_000;
       const env = [
         "ANTHROPIC_BASE_URL=http://model-gateway:8080", `ANTHROPIC_API_KEY=${token}`,
@@ -83,10 +100,17 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       iv.last_exit_reason = null;
       iv.log.runs.push({ run_id: id, started_at: record.started_at });
       interview.save(slug, iv);
-      const state = { slug, token, containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base };
+      const state = { id, slug, token, containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base, lastFail: null };
+      renewToken(state);
       active.set(id, state);
       return { id, env, state, model: role.model, effort: role.effort };
     }
+  }
+
+  /** The token lives as long as the run can: renewed on every tool call and answer, revoked at the end (finding 8). */
+  function renewToken(st) {
+    if (st.finished) return;
+    writeAtomic(tokenFile(st.token), JSON.stringify({ run_id: st.id, expires_at: new Date(Date.now() + st.waitMs + st.idleMs + TOKEN_SPARE_MS).toISOString() }), 0o644);
   }
 
   function resetIdle(id) {
@@ -101,20 +125,23 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
   async function poll(id) {
     const st = active.get(id);
     if (!st || st.stopReason) return;
+    if (![`${st.base}/io`, `${st.base}/io/req`, `${st.base}/io/res`].every(realDir)) {
+      log({ action: "channel_tampered", run: id });
+      return stop(id, "channel_tampered");
+    }
     let files;
     try { files = readdirSync(`${st.base}/io/req`).filter((f) => /^[a-z0-9]+-[a-f0-9]{12}\.json$/.test(f)).sort(); } catch { return; }
     for (const f of files) {
       const p = `${st.base}/io/req/${f}`;
       let req;
       try {
-        const raw = readFileSync(p);
-        unlinkSync(p);
-        if (raw.length > MAX_REQUEST) throw new Error("request too large");
-        req = JSON.parse(raw.toString("utf8"));
+        let raw;
+        try { raw = readRequest(p, MAX_REQUEST); } finally { try { unlinkSync(p); } catch { /* gone */ } }
+        try { req = JSON.parse(raw.toString("utf8")); } catch { throw new Error("malformed request (not JSON)"); } // never quote the content
         if (`${req.id}.json` !== f || typeof req.tool !== "string" || typeof req.args !== "object" || req.args === null || Array.isArray(req.args)) throw new Error("malformed request");
       } catch (e) {
         const rid = f.replace(/\.json$/, "");
-        respond(id, rid, { content: [{ type: "text", text: `Rejected by the factory: ${e.message}` }], isError: true });
+        respond(id, rid, { content: [{ type: "text", text: `Rejected by the factory: ${e.code === "ELOOP" ? "not a regular file" : e.message}` }], isError: true });
         continue;
       }
       if (st.seen.has(req.id)) continue; // never execute a request twice
@@ -126,6 +153,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
   async function handle(id, req) {
     const st = active.get(id);
     resetIdle(id);
+    renewToken(st);
     const rec = readJson(runPath(id));
     rec.tool_calls += 1;
     writeJson(runPath(id), rec);
@@ -134,6 +162,13 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       catch (e) { log({ action: "tool_error", run: id, tool: req.tool, error: e.message }); return { content: [{ type: "text", text: `The factory could not run ${req.tool}: ${e.message}` }], isError: true }; }
     });
     log({ action: "tool_call", run: id, tool: req.tool, ok: !result.isError });
+    // the same failing call again and again stops the run (G13.1, branch review finding 10)
+    const key = `${req.tool} ${JSON.stringify(req.args)}`;
+    st.lastFail = result.isError ? { key, count: st.lastFail?.key === key ? st.lastFail.count + 1 : 1 } : null;
+    if (st.lastFail?.count >= REPEAT_LIMIT) {
+      respond(id, req.id, result);
+      return stop(id, "repeated_failure");
+    }
     if (result.wait) {
       st.pending.set(result.wait.id, req.id);
       clearTimeout(st.timers.idle);
@@ -145,7 +180,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
 
   function respond(id, reqId, result) {
     const st = active.get(id);
-    if (!st) return;
+    if (!st || !/^[a-z0-9]+-[a-f0-9]{12}$/.test(reqId) || !realDir(`${st.base}/io/res`)) return;
     writeAtomic(`${st.base}/io/res/${reqId}.json`, JSON.stringify(result), 0o644);
   }
 
@@ -158,6 +193,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
         const reqId = st.pending.get(questionId);
         st.pending.delete(questionId);
         clearTimeout(st.timers.wait);
+        renewToken(st);
         if (result) respond(id, reqId, result);
         resetIdle(id);
       }
@@ -180,10 +216,16 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
     return { stopping: ids };
   }
 
-  /** Ends a run exactly once: transcript, container removal, token revocation, usage, run record, interview status. */
-  async function finish(id, forced, detail, exitCode) {
+  /** Ends a run exactly once: transcript, container removal, token revocation, usage, secret scan, run record,
+   * interview status. A second call waits for the first. */
+  function finish(id, forced, detail, exitCode) {
     const st = active.get(id);
-    if (!st || st.finished) return;
+    if (!st) return Promise.resolve();
+    st.finishing ??= finishOnce(id, st, forced, detail, exitCode);
+    return st.finishing;
+  }
+
+  async function finishOnce(id, st, forced, detail, exitCode) {
     st.finished = true;
     clearInterval(st.poll);
     for (const t of Object.values(st.timers)) clearTimeout(t);
@@ -197,6 +239,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
     const events = transcript.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     const init = events.find((e) => e.type === "system" && e.subtype === "init");
     const result = [...events].reverse().find((e) => e.type === "result");
+    const outputScan = await scanOutputs(st.slug, transcript);
     await lock(st.slug, async () => {
       const iv = interview.load(st.slug);
       let reason = forced ?? st.stopReason;
@@ -214,42 +257,76 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       rec.exit_code = exitCode ?? null;
       rec.tools_offered = init?.tools ?? null;
       rec.usage = summarize(readUsage(`${dirs.usage}/${id}.jsonl`), prices);
+      rec.output_secret_scan = outputScan;
       writeJson(runPath(id), rec);
-      const entry = iv.log.runs.find((r) => r.run_id === id);
-      if (entry) Object.assign(entry, { ended_at: rec.ended_at, end_reason: reason === "finished" ? "finished" : reason.startsWith("paused") || reason === "ended_without_finish" || reason === "idle_timeout" ? "paused" : "failed" });
-      if (iv.active_run === id) {
-        iv.active_run = null;
-        if (iv.status !== "finished") iv.status = "paused";
-        if (iv.status === "paused" && iv.log.status !== "outdated") iv.log.status = "paused";
-        iv.last_exit_reason = reason;
-      }
+      endInInterview(iv, id, rec.ended_at, reason);
+      if (outputScan.status !== "clean") iv.output_secret_scan = { run_id: id, ...outputScan };
       interview.save(st.slug, iv);
-      log({ action: "run_ended", run: id, reason, tool_calls: rec.tool_calls, usage: rec.usage });
+      log({ action: "run_ended", run: id, reason, tool_calls: rec.tool_calls, usage: rec.usage, output_secret_scan: outputScan.status });
     });
     rmSync(st.base, { recursive: true, force: true });
     active.delete(id);
   }
 
-  /** After a factory restart: remove leftover run containers, revoke all tokens, mark open runs as ended. */
+  /** Best-effort secret scan of what the run produced: drafts, features and the transcript (G7.5, finding 9). A
+   * finding is recorded and shown, nothing is changed. */
+  async function scanOutputs(slug, transcript) {
+    const iv = interview.load(slug);
+    const out = JSON.stringify({ prd: iv.prd, features: iv.features }, null, 1) + "\n" + transcript;
+    try {
+      const findings = await scan(Buffer.from(out));
+      return { status: findings ? "findings" : "clean", findings, scanned: "PRD drafts, feature list, transcript" };
+    } catch (e) { return { status: "error", error: e.message.slice(0, 200) }; }
+  }
+
+  /** The run's entry in the interview log and the interview status after a run ended. */
+  function endInInterview(iv, id, endedAt, reason) {
+    const paused = reason.startsWith("paused") || ["ended_without_finish", "idle_timeout", "factory_stopped", "factory_restarted"].includes(reason);
+    const entry = iv.log.runs.find((r) => r.run_id === id);
+    if (entry && !entry.ended_at) Object.assign(entry, { ended_at: endedAt, end_reason: reason === "finished" ? "finished" : paused ? "paused" : "failed" });
+    if (iv.active_run === id) {
+      iv.active_run = null;
+      if (iv.status !== "finished") iv.status = "paused";
+      if (iv.status === "paused" && iv.log.status !== "outdated") iv.log.status = "paused";
+      iv.last_exit_reason = reason;
+    }
+  }
+
+  /** Factory shutdown (docker compose stop): stops every active run and finalizes it before the process exits (finding 2). */
+  async function shutdown() {
+    const ids = [...active.keys()];
+    await Promise.all(ids.map(async (id) => { await stop(id, "factory_stopped"); await finish(id); }));
+    return ids;
+  }
+
+  /** After a factory restart: keep the transcripts of leftover run containers and remove them, revoke all tokens,
+   * finalize open run records with the usage the gateway recorded (unknown when missing, finding 4). */
   async function recover(slugs) {
-    for (const c of await docker.list([LABEL, `dev.levuvo-sf.project=${composeProject}`]).catch(() => [])) await docker.remove(c.Id).catch(() => {});
+    for (const c of await docker.list([LABEL, `dev.levuvo-sf.project=${composeProject}`]).catch(() => [])) {
+      const runId = c.Labels?.[LABEL];
+      if (runId && /^run-[a-z0-9]+$/.test(runId) && !existsSync(`${dirs.data}/runs/${runId}/transcript.jsonl`)) {
+        try { writeAtomic(`${dirs.data}/runs/${runId}/transcript.jsonl`, (await docker.logs(c.Id)).stdout); } catch (e) { log({ action: "logs_failed", run: runId, error: e.message }); }
+      }
+      await docker.remove(c.Id).catch(() => {});
+    }
     for (const f of readdirSync(dirs.tokens)) rmSync(`${dirs.tokens}/${f}`, { force: true });
     for (const d of readdirSync(dirs.runs)) rmSync(`${dirs.runs}/${d}`, { recursive: true, force: true });
     for (const slug of slugs) {
       const iv = interview.load(slug);
       if (!iv.active_run) continue;
-      const rec = readJson(runPath(iv.active_run), null);
-      if (rec && !rec.ended_at) writeJson(runPath(iv.active_run), { ...rec, ended_at: new Date().toISOString(), exit_reason: "factory_restarted" });
-      const entry = iv.log.runs.find((r) => r.run_id === iv.active_run);
-      if (entry && !entry.ended_at) Object.assign(entry, { ended_at: new Date().toISOString(), end_reason: "paused" });
-      iv.active_run = null;
-      if (iv.status !== "finished") iv.status = "paused";
-      iv.last_exit_reason = "factory_restarted";
+      const id = iv.active_run;
+      const now = new Date().toISOString();
+      const rec = readJson(runPath(id), null);
+      if (rec && !rec.ended_at) {
+        const usage = summarize(readUsage(`${dirs.usage}/${id}.jsonl`), prices);
+        writeJson(runPath(id), { ...rec, ended_at: now, exit_reason: "factory_restarted", usage: { ...usage, cost_is_lower_bound: true, note: "run interrupted: calls in flight may be missing" } });
+      }
+      endInInterview(iv, id, now, "factory_restarted");
       interview.save(slug, iv);
     }
   }
 
   const runRecord = (id) => readJson(runPath(id), null);
   const isActive = (slug) => [...active.values()].some((st) => st.slug === slug);
-  return { start, answer, pause, stop, recover, runRecord, isActive, active };
+  return { start, answer, pause, stop, shutdown, recover, runRecord, isActive, active };
 }

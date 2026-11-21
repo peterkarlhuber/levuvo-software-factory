@@ -13,7 +13,7 @@ const SMALL = 64 * 1024;
 const UPLOAD = 28 * 1024 * 1024; // 20 MB file as base64 in JSON
 const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
-export function createApi({ port, projects, briefing, interview, runner, settings, log = () => {} }) {
+export function createApi({ port, projects, briefing, interview, runner, settings, lock = (_, fn) => fn(), log = () => {} }) {
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
   const origins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 
@@ -28,15 +28,19 @@ export function createApi({ port, projects, briefing, interview, runner, setting
       projects.get(slug);
       if (typeof body.path !== "string" || typeof body.content_base64 !== "string") throw status(400, "path and content_base64 are required");
       const buf = Buffer.from(body.content_base64, "base64");
-      const r = await briefing.put(slug, body.path, buf);
-      if (r.changed) interview.briefingChanged(slug, r.entry.path);
-      return { file: r.entry, inventory_version: r.inventory.version };
+      return lock(slug, async () => { // uploads, deletions and interview updates of one project never interleave
+        const r = await briefing.put(slug, body.path, buf);
+        if (r.changed) interview.briefingChanged(slug, r.entry.path);
+        return { file: r.entry, inventory_version: r.inventory.version };
+      });
     }, UPLOAD],
     ["DELETE", /^\/api\/projects\/([^/]+)\/briefing$/, ([slug], body) => {
       projects.get(slug);
-      const inv = briefing.remove(slug, body.path);
-      interview.briefingChanged(slug, `briefing/${String(body.path).replace(/^briefing\//, "")}`);
-      return { inventory_version: inv.version };
+      return lock(slug, () => {
+        const inv = briefing.remove(slug, body.path);
+        interview.briefingChanged(slug, `briefing/${String(body.path).replace(/^briefing\//, "")}`);
+        return { inventory_version: inv.version };
+      });
     }],
     ["GET", /^\/api\/projects\/([^/]+)\/briefing$/, ([slug]) => { projects.get(slug); return briefing.inventory(slug); }],
     ["POST", /^\/api\/projects\/([^/]+)\/interview\/start$/, async ([slug]) => { projects.get(slug); return runner.start(slug); }],
@@ -59,6 +63,7 @@ export function createApi({ port, projects, briefing, interview, runner, setting
     return {
       status: iv.status, active_run: iv.active_run, last_exit_reason: iv.last_exit_reason, outdated: iv.outdated,
       open_question: open ?? null, prd: iv.prd, features: iv.features.features, log: iv.log, summary: iv.summary,
+      output_secret_scan: iv.output_secret_scan ?? null,
       finish_blockers: iv.status === "finished" ? [] : interview.finishProblems(iv),
     };
   }

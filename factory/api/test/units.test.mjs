@@ -91,7 +91,7 @@ test("usage: cache tokens priced, incomplete calls make the cost a lower bound, 
 test("run container template: fixed image, hardening, one network, two run mounts", () => {
   const s = runContainerSpec({ runId: "run-abc123", project: "levuvo-sf", env: ["A=1"] });
   assert.equal(s.Image, WORKER_IMAGE);
-  assert.equal(s.User, "1000:1000");
+  assert.equal(s.User, "1001:1001", "not the factory's user (branch review finding 5)");
   const h = s.HostConfig;
   assert.equal(h.NetworkMode, "levuvo-sf_agents-api");
   assert.deepEqual([h.ReadonlyRootfs, h.CapDrop, h.SecurityOpt, h.Privileged], [true, ["ALL"], ["no-new-privileges:true"], false]);

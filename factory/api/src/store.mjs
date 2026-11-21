@@ -12,7 +12,7 @@ export function readJson(path, fallback) {
 export function writeAtomic(path, data, mode = 0o600) {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${dirname(path)}/.${randomBytes(6).toString("hex")}.tmp`;
-  writeFileSync(tmp, data, { mode });
+  writeFileSync(tmp, data, { mode, flag: "wx" }); // never through an existing file or link
   renameSync(tmp, path);
 }
 

@@ -6,7 +6,7 @@
 // the project's state (AGENTS.md: write only via tools; PLAYBOOK G2.1, G11.1). How long a call may wait (e.g.
 // `ask_human`) is the factory's decision: it ends the run when the wait is over.
 import { randomBytes } from "node:crypto";
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -29,7 +29,6 @@ export async function relay(name, args, io = IO, sleep = (ms) => new Promise((r)
   for (;;) {
     let text;
     try { text = readFileSync(`${io}/res/${id}.json`, "utf8"); } catch { await sleep(POLL_MS); continue; }
-    rmSync(`${io}/res/${id}.json`, { force: true });
     const r = JSON.parse(text);
     return { content: Array.isArray(r.content) ? r.content : [{ type: "text", text: String(r.text ?? "") }], isError: r.isError === true };
   }

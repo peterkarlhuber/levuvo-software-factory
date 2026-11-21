@@ -73,7 +73,7 @@ export function runContainerSpec({ runId, project, env }) {
   const sub = (p, target, ro) => ({ Type: "volume", Source: `${project}_runs`, Target: target, ReadOnly: ro, VolumeOptions: { NoCopy: true, Subpath: `${runId}/${p}` } });
   return {
     Image: WORKER_IMAGE,
-    User: "1000:1000",
+    User: "1001:1001", // not the factory's own user: the run cannot change the folders the factory writes
     Env: env,
     WorkingDir: "/home/node",
     Labels: { [LABEL]: runId, "dev.levuvo-sf.project": project },
@@ -87,7 +87,7 @@ export function runContainerSpec({ runId, project, env }) {
       Memory: 1024 * 1024 * 1024,
       NanoCpus: 1_000_000_000,
       PidsLimit: 256,
-      Tmpfs: { "/tmp": "rw,nosuid,nodev,size=64m", "/home/node": "rw,nosuid,nodev,size=256m,uid=1000,gid=1000" },
+      Tmpfs: { "/tmp": "rw,nosuid,nodev,size=64m", "/home/node": "rw,nosuid,nodev,size=256m,uid=1001,gid=1001" },
       Mounts: [sub("in", "/run/levuvo/in", true), sub("io", "/run/levuvo/io", false)],
       LogConfig: { Type: "json-file", Config: { "max-size": "20m", "max-file": "1" } },
       AutoRemove: false,

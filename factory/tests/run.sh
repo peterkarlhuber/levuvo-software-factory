@@ -178,9 +178,10 @@ check "a second start is refused while it runs" 409 "$(status -X POST -H 'Conten
 check "the agent asks its first question" waiting_for_human "$(wait_iv e2e-main waiting_for_human 120)"
 RUN="$(docker ps --filter label=dev.levuvo-sf.run --filter label=dev.levuvo-sf.project=$P --format '{{.Names}}' | head -1)"
 read -r user ro caps secopt nets mounts <<< "$(docker inspect -f '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}} {{len .Mounts}}' "$RUN")"
-check "run container: non-root, read-only, no caps, no-new-privileges" "1000:1000 true [ALL] [no-new-privileges:true]" "$user $ro $caps $secopt"
+check "run container: non-root, read-only, no caps, no-new-privileges" "1001:1001 true [ALL] [no-new-privileges:true]" "$user $ro $caps $secopt"
 check "run container: only the agents-api network, two mounts" "${P}_agents-api 2" "$nets $mounts"
 check "run container: no Docker socket, in read-only, io writable" "/run/levuvo/in:false /run/levuvo/io:true" "$(docker inspect -f '{{range .Mounts}}{{.Destination}}:{{.RW}} {{end}}' "$RUN" | xargs)"
+if docker exec "$RUN" sh -c 'touch /run/levuvo/io/res/x || mv /run/levuvo/io/res /run/levuvo/io/r2 || ln -s /etc /run/levuvo/io/res/l' 2>/dev/null; then bad "the run cannot write or replace the answer folder"; else ok "the run cannot write or replace the answer folder"; fi
 if docker inspect -f '{{.Config.Env}}' "$RUN" | grep -qF "$TEST_KEY"; then bad "the API key is not in the run container"; else ok "the API key is not in the run container"; fi
 if docker exec "$RUN" sh -c "grep -rqsF '$TEST_KEY' /run /home /tmp /opt 2>/dev/null"; then bad "no file in the run container holds the API key"; else ok "no file in the run container holds the API key"; fi
 echo "  (holding the question for 130 s: ask_human must not move to the background after 2 minutes)"
@@ -230,6 +231,17 @@ post /api/settings '{"ask_human_wait_minutes":10}' PUT >/dev/null
 echo "› the API key appears nowhere else"
 if dc logs 2>&1 | grep -qF "$TEST_KEY"; then bad "the API key is in no container log"; else ok "the API key is in no container log"; fi
 if dc exec -T factory sh -c "grep -rqsF '$TEST_KEY' /var/lib/levuvo /run/levuvo"; then bad "the API key is nowhere in the factory's data"; else ok "the API key is nowhere in the factory's data"; fi
+
+echo "› docker compose stop ends active runs cleanly"
+post /api/projects/e2e-timeout/interview/start '{}' >/dev/null
+check "the agent asks" waiting_for_human "$(wait_iv e2e-timeout waiting_for_human 120)"
+dc stop factory >/dev/null 2>&1
+check "no run container is left" 0 "$(docker ps -a --filter label=dev.levuvo-sf.project=$P --filter label=dev.levuvo-sf.run -q | wc -l | xargs)"
+check "no run token is left" 0 "$(dc exec -T model-gateway sh -c 'ls /run/levuvo/tokens | wc -l' | xargs)"
+dc start factory >/dev/null 2>&1
+for _ in $(seq 1 60); do [[ "$(docker inspect -f '{{.State.Health.Status}}' "$P-factory-1")" == healthy ]] && break; sleep 1; done
+check "the run ended as factory_stopped and the interview is paused" "factory_stopped paused" "$(get /api/projects/e2e-timeout/interview | json 'd.last_exit_reason+" "+d.status')"
+check "its usage was recorded" true "$(get "/api/runs/$(get /api/projects/e2e-timeout/interview | json 'd.log.runs.at(-1).run_id')" | json 'd.usage.calls>0')"
 
 echo "› restart keeps data and password"
 dc down >/dev/null 2>&1

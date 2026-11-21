@@ -75,5 +75,5 @@ test("relay: writes one request file and returns the factory's answer", async ()
   });
   const r = await p;
   assert.deepEqual(r, { content: [{ type: "text", text: "yes" }], isError: false });
-  assert.deepEqual(readdirSync(join(io, "res")), [], "answer file consumed");
+  assert.equal(readdirSync(join(io, "res")).length, 1, "the answer file stays: the run cannot write io/res, the factory removes the folder at the end");
 });

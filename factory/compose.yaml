@@ -196,6 +196,7 @@ services:
       context: ..
       dockerfile: factory/api/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 30s # on stop the factory ends active runs cleanly first (container, token, run record)
     mem_limit: 512m
     cpus: 1
     pids_limit: 128

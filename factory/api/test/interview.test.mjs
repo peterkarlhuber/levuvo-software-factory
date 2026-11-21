@@ -179,3 +179,47 @@ test("tags are metadata and do not change the inventory version", async () => {
   assert.equal(inv.version, v);
   assert.deepEqual(inv.files[0].tags, [{ tag: "design-reference", note: "likes calm colours", set_by: "run-test01" }]);
 });
+
+/** Brings the interview to a finishable state: all sections confirmed from briefing/notes.md, features, closing question. */
+function settleAll(t) {
+  const q = askAndAnswer(t, { prd_sections: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] });
+  for (let s = 1; s <= 10; s++) assert.equal(t.call("update_prd_section", { section: s, status: "confirmed", content: `S${s}`, source: `briefing/notes.md; answer ${q}`, answer_ref: q }).isError, undefined);
+  assert.equal(t.call("update_features", { features: [{ name: "Book", summary: "Book a court.", priority: "must", depends_on: [], scope_ref: "Booking", source: "briefing/notes.md" }] }).isError, undefined);
+  askAndAnswer(t, { closing: true });
+}
+
+test("after finish_interview every further tool call is refused (branch review finding 1)", async () => {
+  const t = await setup();
+  settleAll(t);
+  assert.equal(t.call("finish_interview", { summary: "done" }).isError, undefined);
+  assert.match(textOf(t.call("update_prd_section", { section: 1, status: "drafted", content: "changed", source: "briefing/notes.md" })), /interview is finished/);
+  assert.match(textOf(t.call("update_features", { features: [{ name: "Other", summary: "x", priority: "must", depends_on: [], scope_ref: "x", source: "briefing/notes.md" }] })), /interview is finished/);
+  const iv = t.interview.load("demo");
+  assert.equal(iv.prd[1].content, "S1");
+  assert.equal(iv.features.features[0].name, "Book");
+});
+
+test("a briefing change reopens the sections that rely on the file; re-reading alone does not settle them (branch review finding 3)", async () => {
+  const t = await setup({ "notes.md": "Tennis club booking", "other.md": "Opening hours" });
+  settleAll(t);
+  assert.deepEqual(t.interview.finishProblems(t.interview.load("demo")), []);
+  await t.briefing.put("demo", "notes.md", Buffer.from("Tennis club booking, now with guests"));
+  t.interview.briefingChanged("demo", "briefing/notes.md");
+  assert.equal(t.call("read_briefing", { path: "briefing/notes.md" }).isError, undefined);
+  const iv = t.interview.load("demo");
+  assert.deepEqual(iv.outdated, []);
+  assert.equal(iv.prd[1].status, "drafted");
+  assert.equal(iv.prd[1].reopened_by, "briefing/notes.md");
+  const problems = t.interview.finishProblems(iv).join(" | ");
+  assert.match(problems, /not confirmed or deferred/);
+  assert.match(problems, /closing question/);
+  assert.equal(t.call("finish_interview", { summary: "x" }).isError, true);
+  // a change to a file no section relies on keeps the sections but needs a new closing question
+  const t2 = await setup({ "notes.md": "Tennis club booking", "other.md": "Opening hours" });
+  settleAll(t2);
+  t2.interview.briefingChanged("demo", "briefing/other.md");
+  t2.call("read_briefing", { path: "briefing/other.md" });
+  const iv2 = t2.interview.load("demo");
+  assert.equal(iv2.prd[1].status, "confirmed");
+  assert.match(t2.interview.finishProblems(iv2).join(" "), /closing question/);
+});

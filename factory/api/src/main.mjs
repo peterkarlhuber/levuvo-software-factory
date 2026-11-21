@@ -35,10 +35,20 @@ const self = await docker.self(hostname());
 const composeProject = self.Config.Labels["com.docker.compose.project"];
 if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(composeProject ?? "")) throw new Error("cannot tell the compose project");
 
+const lock = createLocks(); // one lock per project, shared by the runner and the briefing upload
 const runner = createRunner({
-  dirs, docker, interview, briefing, settings: settings.get, prices, project: projects.get, lock: createLocks(),
+  dirs, docker, interview, briefing, settings: settings.get, prices, project: projects.get, lock,
   skillsDir: "/opt/levuvo/skills", composeProject, log,
 });
 await runner.recover(projects.list().map((p) => p.slug));
-createApi({ port: PORT, projects, briefing, interview, runner, settings, log }).listen(3100, "0.0.0.0", () => log({ action: "listening", port: 3100, project: composeProject }));
-for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => { log({ action: "shutdown" }); process.exit(0); });
+createApi({ port: PORT, projects, briefing, interview, runner, settings, lock, log }).listen(3100, "0.0.0.0", () => log({ action: "listening", port: 3100, project: composeProject }));
+// docker compose stop: end every active run cleanly (container removed, token revoked, record written) before exiting
+let stopping = false;
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, async () => {
+  if (stopping) return;
+  stopping = true;
+  log({ action: "shutdown" });
+  setTimeout(() => process.exit(1), 25_000).unref(); // compose gives 30 s (stop_grace_period); startup recovery is the fallback
+  try { log({ action: "runs_stopped", runs: await runner.shutdown() }); } catch (e) { log({ action: "shutdown_error", error: e.message }); }
+  process.exit(0);
+});
