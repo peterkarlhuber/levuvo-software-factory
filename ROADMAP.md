@@ -13,9 +13,10 @@ One line per item: what it is and where it stands. An item is worked out only wh
 - Block 1: factory base (local Forgejo, egress proxies) – PR #7
 - Block 2: first isolated agent run (interviewer A2) through the factory API and model gateway – PRs #8, #9, #10, #12
 - Web search for the interviewer (owner opt-in) – PR #11
+- Block 3: minimal web UI (Inbox first, live PRD, answers with attachments, per-project web search)
 
 ## In progress
-- Block 3: minimal web UI (Inbox first, live PRD, answers with attachments, per-project web search)
+- (nothing)
 
 ## Next (V1)
 - iPhone access via Tailscale with sign-in – right after block 3
