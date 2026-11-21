@@ -47,35 +47,47 @@ export function isPrivateAddress(ip) {
 }
 
 /**
- * The server name (SNI) of a TLS ClientHello, or null when `buf` is not a complete ClientHello record with exactly
- * one host name. Only the first TLS record is read; real clients send the whole ClientHello in it.
+ * The server name (SNI) of a TLS ClientHello, or null unless `buf` starts with one complete, well-formed ClientHello
+ * that fills its TLS record exactly and carries exactly one host name. Every declared length must match the
+ * structure it encloses; anything inconsistent is refused. Real clients send the whole ClientHello in one record.
  */
 export function readSni(buf) {
   try {
-    if (buf.length < 5 || buf[0] !== 0x16) return null;
-    const end = 5 + buf.readUInt16BE(3);
-    if (buf.length < end || buf[5] !== 0x01) return null;
-    let i = 5 + 4 + 2 + 32; // handshake header, client version, random
-    i += 1 + buf[i]; // session id
-    i += 2 + buf.readUInt16BE(i); // cipher suites
-    i += 1 + buf[i]; // compression methods
-    const extEnd = i + 2 + buf.readUInt16BE(i);
-    if (extEnd > end) return null;
+    if (buf.length < 9 || buf[0] !== 0x16) return null;
+    const end = 5 + buf.readUInt16BE(3); // TLS record
+    if (buf.length !== end || buf[5] !== 0x01) return null; // nothing may follow the ClientHello before the reply
+    if (9 + buf.readUIntBE(6, 3) !== end) return null; // handshake length fills the record exactly
+    let i = 9 + 2 + 32; // client version, random
+    const skip = (lenBytes) => { // skips a length-prefixed vector, refusing one that overruns the record
+      const len = lenBytes === 1 ? buf[i] : buf.readUInt16BE(i);
+      if (i + lenBytes + len > end) throw new Error("overrun");
+      i += lenBytes + len;
+    };
+    skip(1); // session id
+    skip(2); // cipher suites
+    skip(1); // compression methods
+    if (i + 2 + buf.readUInt16BE(i) !== end) return null; // extensions fill the rest exactly
     const names = [];
-    for (i += 2; i + 4 <= extEnd; ) {
+    for (i += 2; i < end; ) {
+      if (i + 4 > end) return null;
       const type = buf.readUInt16BE(i);
       const len = buf.readUInt16BE(i + 2);
-      i += 4;
+      const extEnd = i + 4 + len;
+      if (extEnd > end) return null;
       if (type === 0) {
-        for (let j = i + 2; j + 3 <= i + len; ) {
+        if (len < 2 || buf.readUInt16BE(i + 4) !== len - 2) return null; // server name list fills the extension
+        for (let j = i + 6; j < extEnd; ) {
+          if (j + 3 > extEnd) return null;
           const nlen = buf.readUInt16BE(j + 1);
-          if (buf[j] === 0) names.push(buf.toString("ascii", j + 3, j + 3 + nlen));
+          if (j + 3 + nlen > extEnd) return null;
+          if (buf[j] === 0) names.push(buf.toString("latin1", j + 3, j + 3 + nlen));
           j += 3 + nlen;
         }
       }
-      i += len;
+      i = extEnd;
     }
-    return names.length === 1 ? names[0].toLowerCase().replace(/\.$/, "") : null;
+    if (names.length !== 1 || !/^[a-z0-9.-]{1,253}$/i.test(names[0])) return null;
+    return names[0].toLowerCase().replace(/\.$/, "");
   } catch {
     return null;
   }
@@ -119,9 +131,14 @@ export function createProxy({ rules, profile = "", resolve = lookup, isPrivate =
     res.writeHead(403, { "content-type": "text/plain" }).end("Forbidden by Levuvo SF egress policy\n");
   });
 
-  proxy.on("connect", async (req, socket) => {
+  proxy.on("connect", async (req, socket, head) => {
     const client = socket.remoteAddress;
     socket.on("error", () => socket.destroy());
+    // bytes sent before the proxy's answer (pipelined after CONNECT) are not supported: refuse instead of guessing
+    if (head?.length) {
+      record({ profile, action: "blocked", client, reason: "data sent before the CONNECT answer" });
+      return refuse(socket, 400, "Bad Request");
+    }
     const m = /^([^:\s]+):(\d{1,5})$/.exec(req.url ?? "");
     if (!m) {
       record({ profile, action: "blocked", client, reason: "bad CONNECT target" });

@@ -117,10 +117,52 @@ test("a different, missing or non-TLS first message closes the tunnel before any
   }
 });
 
-test("readSni reads exactly one host name and rejects anything else", () => {
+/** A real ClientHello as Node's TLS client sends it. */
+function realHello(servername) {
+  return new Promise((resolve) => {
+    const srv = createServer((s) => s.once("data", (d) => { resolve(Buffer.from(d)); s.destroy(); srv.close(); }));
+    srv.listen(0, "127.0.0.1", () => {
+      const c = connect(srv.address().port, "127.0.0.1", () => tlsConnect({ socket: c, servername, rejectUnauthorized: false }).on("error", () => {}));
+      c.on("error", () => {});
+    });
+  });
+}
+
+test("readSni reads exactly one host name from a well-formed ClientHello", async () => {
+  const hello = await realHello("api.anthropic.com");
+  assert.equal(readSni(hello), "api.anthropic.com");
   assert.equal(readSni(Buffer.alloc(0)), null);
   assert.equal(readSni(Buffer.from("hello world")), null);
-  assert.equal(readSni(Buffer.from([0x16, 3, 1, 0, 200, 1])), null); // truncated record
+  assert.equal(readSni(hello.subarray(0, hello.length - 1)), null); // truncated record
+  assert.equal(readSni(Buffer.concat([hello, Buffer.from([0x17])])), null); // extra bytes after the record
+});
+
+test("readSni refuses inconsistent lengths (handshake, extensions, server name list)", async () => {
+  const hello = await realHello("api.anthropic.com");
+  const tamper = (fn) => { const b = Buffer.from(hello); fn(b); return readSni(b); };
+  assert.equal(tamper((b) => b.writeUIntBE(0, 6, 3)), null); // handshake length 0 (re-check finding)
+  assert.equal(tamper((b) => b.writeUIntBE(b.readUIntBE(6, 3) - 1, 6, 3)), null); // handshake shorter than the record
+  // locate the extensions block and the server_name extension in the real hello
+  let i = 9 + 2 + 32;
+  i += 1 + hello[i]; i += 2 + hello.readUInt16BE(i); i += 1 + hello[i];
+  const extLenAt = i;
+  let sni = -1;
+  for (let j = i + 2; j < hello.length; j += 4 + hello.readUInt16BE(j + 2)) if (hello.readUInt16BE(j) === 0) { sni = j; break; }
+  assert.ok(sni > 0);
+  assert.equal(tamper((b) => b.writeUInt16BE(b.readUInt16BE(extLenAt) + 1, extLenAt)), null); // extensions overrun
+  assert.equal(tamper((b) => b.writeUInt16BE(b.readUInt16BE(sni + 4) + 1, sni + 4)), null); // name list longer than extension
+  assert.equal(tamper((b) => b.writeUInt16BE(0xffff, sni + 7)), null); // name longer than the list
+});
+
+test("data pipelined with the CONNECT request is refused", async () => {
+  await withProxy({}, async ({ proxyPort, upstreamPort, records }) => {
+    const code = await new Promise((resolve) => {
+      const s = connect(proxyPort, "127.0.0.1", () => s.write(`CONNECT allowed.test:${upstreamPort} HTTP/1.1\r\nHost: x\r\n\r\n\x16\x03\x01`));
+      s.once("data", (d) => { resolve(Number(String(d).slice(9, 12))); s.destroy(); });
+    });
+    assert.equal(code, 400);
+    assert.match(records.at(-1).reason, /before the CONNECT answer/);
+  });
 });
 
 test("hosts and ports off the list are refused with 403", async () => {
