@@ -46,7 +46,7 @@ async function world(script, settingsPatch = {}, { scan = async () => 0, scanFil
   settings.update(settingsPatch);
   const briefing = createBriefing({ dataDir: dirs.data, validator, scan: scanFiles });
   const interview = createInterview({ dataDir: dirs.data, briefing, validator, settings: settings.get });
-  const forgejo = { createProjectRepo: async (slug) => ({ org: "levuvo-sf", name: slug }), api: gitApi };
+  const forgejo = { createProjectRepo: async (slug) => ({ org: "levuvo-sf", name: slug, id: 7 }), api: gitApi };
   const projects = createProjects({ dataDir: dirs.data, forgejo, readJson, writeJson });
   const docker = fakeDocker(script);
   const skillsDir = join(root, "skills");
@@ -499,10 +499,7 @@ test("a failing run end never leaves the interview running; the next start clean
   const w = await world(async ({ runId }) => {
     n++;
     await tool(w.dirs, runId, "read_briefing", {});
-    if (n === 1) { // the run record's folder turns into a file: writing the record at the end fails
-      rmSync(join(w.dirs.data, "runs", runId), { recursive: true });
-      writeFileSync(join(w.dirs.data, "runs", runId), "x");
-    }
+    if (n === 1) mkdirSync(join(w.dirs.data, "runs", runId, "transcript.jsonl", "x"), { recursive: true }); // the transcript cannot be written: the run end fails half-way
     return 0;
   });
   await newProject(w);
@@ -511,6 +508,10 @@ test("a failing run end never leaves the interview running; the next start clean
   assert.ok(await waitFor(() => !w.runner.isActive("tennis-club")));
   const iv = (await w.call("GET", "/api/projects/tennis-club/interview")).body;
   assert.deepEqual([iv.status, iv.active_run, iv.last_exit_reason], ["paused", null, "finish_failed"]);
+  // the run record is closed too, with the usage the gateway saw (branch finding 5)
+  const rec = w.runner.runRecord(iv.log.runs[0].run_id);
+  assert.deepEqual([rec.exit_reason, !!rec.ended_at, rec.usage.cost_is_lower_bound], ["finish_failed", true, true]);
+  assert.equal(iv.log.runs[0].end_reason, "paused");
   const r = await w.call("POST", "/api/projects/tennis-club/interview/start", {});
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.ok(await waitFor(() => !w.runner.isActive("tennis-club")));
@@ -568,7 +569,7 @@ test("delete project: typed name, refused while a run is active, repository firs
   const git = [];
   let fail = true;
   const w = await world(async ({ runId }) => { await tool(w.dirs, runId, "read_briefing", {}); await new Promise(() => {}); }, {}, {
-    gitApi: async (method, path) => { git.push(`${method} ${path}`); if (fail) throw Object.assign(new Error("git server: 500"), { status: 500 }); return null; },
+    gitApi: async (method, path) => { git.push(`${method} ${path}`); if (fail && method === "DELETE") throw Object.assign(new Error("git server: 500"), { status: 500 }); return method === "GET" ? { id: 7 } : null; },
   });
   await newProject(w);
   await w.call("POST", "/api/projects/tennis-club/interview/start", {});
@@ -589,7 +590,7 @@ test("delete project: typed name, refused while a run is active, repository firs
   fail = false;
   const d2 = await w.call("DELETE", "/api/projects/tennis-club", { confirm: "tennis-club" });
   assert.equal(d2.status, 200, JSON.stringify(d2.body));
-  assert.deepEqual(git, ["DELETE /repos/levuvo-sf/tennis-club", "DELETE /repos/levuvo-sf/tennis-club"], "only its own repository");
+  assert.deepEqual(git, ["GET /repos/levuvo-sf/tennis-club", "DELETE /repos/levuvo-sf/tennis-club", "GET /repos/levuvo-sf/tennis-club", "DELETE /repos/levuvo-sf/tennis-club"], "only its own repository, checked first");
   assert.equal((await w.call("GET", "/api/projects/tennis-club")).status, 404);
   assert.ok(!existsSync(join(w.dirs.data, "runs", runId)), "its run records are gone too");
   assert.deepEqual((await w.call("GET", "/api/projects")).body, []);
@@ -614,8 +615,110 @@ test("project properties: only web_search, only true or false; the list carries 
   const [p] = (await w.call("GET", "/api/projects")).body;
   assert.equal(p.briefing_files, 1);
   assert.deepEqual([p.interview.status, p.interview.active, p.interview.open_question.id, p.interview.open_question.decision_needed], ["waiting_for_human", true, "Q-001", "Members only?"]);
-  assert.deepEqual((await w.call("GET", "/api/projects/tennis-club/interview")).body.unanswered, ["Q-001"]);
+  assert.equal((await w.call("GET", "/api/projects/tennis-club/interview")).body.open_question.id, "Q-001");
   await w.runner.shutdown();
+  w.api.close();
+});
+
+test("delete project: fails closed on a foreign repository and when an earlier run cannot be cleaned up (branch findings 2 and 6)", async () => {
+  const git = [];
+  let id = 8;
+  const w = await world(async () => 0, {}, { gitApi: async (method, path) => { git.push(`${method} ${path}`); return method === "GET" ? { id } : null; } });
+  await newProject(w);
+  // the repository at the path is not the one the factory created (another id): nothing is deleted
+  const d1 = await w.call("DELETE", "/api/projects/tennis-club", { confirm: "Tennis Club" });
+  assert.equal(d1.status, 409);
+  assert.match(d1.body.error, /not this project's repository/);
+  assert.deepEqual(git, ["GET /repos/levuvo-sf/tennis-club"]);
+  // a leftover run container that cannot be removed refuses the deletion before anything changes
+  const ghost = await w.docker.create("levuvo-sf-run-ghost1", { Labels: { "dev.levuvo-sf.run": "run-ghost1", "dev.levuvo-sf.project": "levuvo-sf-test" } });
+  w.docker.remove = async () => { throw new Error("docker-proxy down"); };
+  git.length = 0;
+  id = 7;
+  const d2 = await w.call("DELETE", "/api/projects/tennis-club", { confirm: "Tennis Club" });
+  assert.equal(d2.status, 503);
+  assert.match(d2.body.error, /could not be cleaned up/);
+  assert.deepEqual(git, [], "the repository is untouched");
+  w.docker.remove = async (cid) => { w.docker.containers.get(cid).removed = true; };
+  assert.equal((await w.call("DELETE", "/api/projects/tennis-club", { confirm: "Tennis Club" })).status, 200);
+  assert.ok(w.docker.containers.get(ghost.Id).removed, "the leftover container went first");
+  // a project whose repository record names another repository is refused
+  await newProject(w);
+  writeJson(join(w.dirs.data, "projects/tennis-club/project.json"), { ...w.projects.get("tennis-club"), repo: { org: "levuvo-sf", name: "other" } });
+  const d3 = await w.call("DELETE", "/api/projects/tennis-club", { confirm: "Tennis Club" });
+  assert.equal(d3.status, 409);
+  assert.match(d3.body.error, /does not match/);
+  w.api.close();
+});
+
+test("no second run while one of the project still ends, whatever the stored status (branch finding 4)", async () => {
+  let release;
+  const w = await world(async ({ runId }) => { await tool(w.dirs, runId, "read_briefing", {}); await new Promise((r) => { release = r; }); return 0; });
+  await newProject(w);
+  assert.equal((await w.call("POST", "/api/projects/tennis-club/interview/start", {})).status, 200);
+  assert.ok(await waitFor(() => release));
+  const iv = w.interview.load("tennis-club");
+  iv.status = "paused"; // e.g. a briefing change right after finish_interview, before the container has ended
+  w.interview.save("tennis-club", iv);
+  const r = await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /still active or ending/);
+  release();
+  assert.ok(await waitFor(() => !w.runner.isActive("tennis-club")));
+  w.api.close();
+});
+
+test("an answer that arrives while the run ends is not handed to it; the interview resumes once after the end (branch finding 3)", async () => {
+  let runs = 0;
+  let stopHit;
+  const w = await world(async ({ runId }) => {
+    runs++;
+    if (runs === 1) {
+      await tool(w.dirs, runId, "read_briefing", {});
+      tool(w.dirs, runId, "ask_human", { finding: "f", decision_needed: "Members only?", recommendation: { answer: "Yes", reason: "r" } });
+      await new Promise(() => {});
+    }
+    return 0;
+  });
+  await newProject(w);
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  assert.ok(await waitFor(async () => (await w.call("GET", "/api/projects/tennis-club/interview")).body.status === "waiting_for_human"));
+  // the container takes a while to stop: the answer comes in between
+  const stop = w.docker.stop;
+  w.docker.stop = async (cid) => { await new Promise((r) => { stopHit = r; }); return stop(cid); };
+  const paused = w.call("POST", "/api/projects/tennis-club/interview/pause", {});
+  assert.ok(await waitFor(() => stopHit));
+  const ans = w.call("POST", "/api/projects/tennis-club/interview/answer", { question_id: "Q-001", text: "Nur Mitglieder" });
+  await sleep(50);
+  stopHit();
+  await paused;
+  const body = (await ans).body;
+  assert.equal(body.delivered, false, "never handed to the ending run");
+  assert.match(body.resumed, /^run-/, "resumed after the end");
+  assert.ok(await waitFor(() => !w.runner.isActive("tennis-club")));
+  const iv = (await w.call("GET", "/api/projects/tennis-club/interview")).body;
+  assert.equal(iv.log.runs.length, 2, "exactly one new run");
+  assert.equal(iv.log.entries[0].answer.text, "Nur Mitglieder");
+  w.api.close();
+});
+
+test("only the current question can be answered; an older unanswered one stays history (branch finding 7)", async () => {
+  const w = await world(async () => 0);
+  await newProject(w);
+  const iv = w.interview.load("tennis-club");
+  const q = (id, d) => ({ question: { id, finding: "f", decision_needed: d, recommendation: { answer: "a", reason: "r" }, asked_at: new Date().toISOString() } });
+  iv.log.entries.push(q("Q-001", "Old?"), q("Q-002", "New?"));
+  Object.assign(iv, { status: "paused", next_question: 3 });
+  w.interview.save("tennis-club", iv);
+  assert.equal((await w.call("GET", "/api/projects")).body[0].interview.open_question.id, "Q-002");
+  const old = await w.call("POST", "/api/projects/tennis-club/interview/answer", { question_id: "Q-001", text: "x" });
+  assert.equal(old.status, 409);
+  assert.match(old.body.error, /no longer open/);
+  const fin = w.interview.load("tennis-club");
+  fin.status = "finished";
+  w.interview.save("tennis-club", fin);
+  assert.equal((await w.call("GET", "/api/projects")).body[0].interview.open_question, null, "a finished interview offers nothing");
+  assert.equal((await w.call("POST", "/api/projects/tennis-club/interview/answer", { question_id: "Q-002", text: "x" })).status, 409);
   w.api.close();
 });
 

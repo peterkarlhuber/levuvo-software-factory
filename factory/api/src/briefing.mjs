@@ -136,15 +136,31 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
     }
     return out;
   }
+  /** Stores screened answer attachments; returns a function that takes them back if the answer cannot be saved. The
+   * caller has checked that the question is unanswered, so a file already at the path is a leftover of a failed
+   * attempt: the identical file is reused, a different one refused (branch finding 1). */
   function storeAttachments(slug, screened) {
-    if (!screened.length) return inventory(slug);
     const inv = inventory(slug);
-    for (const { entry } of screened) if (inv.files.some((x) => x.path === entry.path)) throw httpError(409, `${entry.path} already exists`);
-    const files = inv.files.concat(screened.map((s) => s.entry)).sort((a, b) => a.path.localeCompare(b.path));
+    const fresh = [];
+    for (const s of screened) {
+      const old = inv.files.find((x) => x.path === s.entry.path);
+      if (!old) fresh.push(s);
+      else if (old.sha256 !== s.entry.sha256) throw httpError(409, `${s.entry.path} already exists`);
+    }
+    if (!fresh.length) return () => {};
+    const files = inv.files.concat(fresh.map((s) => s.entry)).sort((a, b) => a.path.localeCompare(b.path));
     const err = validator.check("inventory", { ...inv, files });
     if (err) throw new Error(`inventory invalid: ${err}`); // checked before any file is written
-    for (const { entry, buf } of screened) writeAtomic(`${dir(slug)}/${entry.path}`, buf);
-    return saveInventory(slug, { ...inv, files }, true);
+    const drop = () => { for (const { entry } of fresh) rmSync(`${dir(slug)}/${entry.path}`, { force: true }); };
+    try {
+      for (const { entry, buf } of fresh) writeAtomic(`${dir(slug)}/${entry.path}`, buf);
+      saveInventory(slug, { ...inv, files }, true);
+    } catch (e) { drop(); throw e; }
+    return () => {
+      const now = inventory(slug);
+      saveInventory(slug, { ...now, files: now.files.filter((f) => !fresh.some((s) => s.entry.path === f.path)) }, true);
+      drop();
+    };
   }
 
   function remove(slug, rawPath) {

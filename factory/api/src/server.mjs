@@ -8,7 +8,7 @@
 // No user accounts yet: the API is local only. Remote access (Tailscale) gets its own sign-in later.
 import { createServer } from "node:http";
 import { readdirSync, readFileSync, rmSync } from "node:fs";
-import { renderFeatures, renderPrd } from "./interview.mjs";
+import { actionableQuestion, renderFeatures, renderPrd } from "./interview.mjs";
 import { ORG } from "./forgejo.mjs";
 
 const SMALL = 64 * 1024;
@@ -43,8 +43,10 @@ export function createApi({ port, projects, briefing, interview, runner, setting
     ["POST", /^\/api\/projects$/, async (_, body) => projects.create(body)],
     ["GET", /^\/api\/projects\/([^/]+)$/, ([slug]) => overview(slug)],
     ["PUT", /^\/api\/projects\/([^/]+)$/, ([slug], body) => lock(slug, () => projects.update(slug, body))],
-    ["DELETE", /^\/api\/projects\/([^/]+)$/, ([slug], body) => lock(slug, () => projects.remove(slug, body.confirm, {
+    ["DELETE", /^\/api\/projects\/([^/]+)$/, ([slug], body) => lock(slug, async () => projects.remove(slug, body.confirm, {
       busy: runner.isActive(slug), runIds: interview.load(slug).log.runs.map((r) => r.run_id),
+      // nothing of an earlier run may be left (container, token, open record) before anything is deleted (branch finding 2)
+      cleanup: () => runner.reconcile(slug),
     }))],
     ["PUT", /^\/api\/projects\/([^/]+)\/briefing$/, async ([slug], body) => {
       projects.writable(slug);
@@ -87,11 +89,12 @@ export function createApi({ port, projects, briefing, interview, runner, setting
     if (iv.active_run && !runner.isLive(iv.active_run)) Object.assign(iv, { status: iv.status === "finished" ? "finished" : "paused", active_run: null, last_exit_reason: iv.last_exit_reason ?? "finish_failed" });
     return iv;
   }
-  const openQuestion = (iv) => (iv.open_question ? iv.log.entries.find((e) => e.question.id === iv.open_question)?.question ?? null : null);
+  /** The question the owner can answer now (branch finding 7); older unanswered ones stay in the history only. */
+  const openQuestion = (iv) => { const id = actionableQuestion(iv); return id ? iv.log.entries.find((e) => e.question.id === id)?.question ?? null : null; };
   /** One line per project for the project list and the "Needs you" inbox. */
   function summary(p) {
     const iv = current(p.slug);
-    const q = openQuestion(iv) ?? iv.log.entries.find((e) => !e.answer)?.question ?? null; // asked before a pause too
+    const q = openQuestion(iv);
     return {
       ...p, briefing_files: briefing.inventory(p.slug).files.length,
       interview: { status: iv.status, active: !!iv.active_run, last_exit_reason: iv.last_exit_reason, open_question: q ? { id: q.id, decision_needed: q.decision_needed, asked_at: q.asked_at } : null, runs: iv.log.runs.length },
@@ -103,7 +106,7 @@ export function createApi({ port, projects, briefing, interview, runner, setting
     const open = openQuestion(iv);
     return {
       status: iv.status, active_run: iv.active_run, last_exit_reason: iv.last_exit_reason, outdated: iv.outdated,
-      open_question: open ?? null, unanswered: iv.log.entries.filter((e) => !e.answer).map((e) => e.question.id), prd: iv.prd, features: iv.features.features, log: iv.log, summary: iv.summary,
+      open_question: open ?? null, prd: iv.prd, features: iv.features.features, log: iv.log, summary: iv.summary,
       output_secret_scan: iv.output_secret_scan ?? null,
       finish_blockers: iv.status === "finished" ? [] : interview.finishProblems(iv),
     };
@@ -222,12 +225,20 @@ export function createProjects({ dataDir, forgejo, readJson, writeJson }) {
   /** Deletes the project: its own repository on the git server, then its factory data and run records. Runs under
    * the project lock; a failure leaves the mark `deleting` (no start, upload or answer) and can be retried
    * (scope review finding 4). Not undoable. */
-  const remove = async (slug, confirm, { busy, runIds }) => {
+  const remove = async (slug, confirm, { busy, runIds, cleanup = async () => {} }) => {
     const p = get(slug);
     if (typeof confirm !== "string" || (confirm.trim() !== p.name && confirm.trim() !== slug)) throw status(400, "type the project name to confirm");
     if (busy) throw status(409, "an interview run is active: pause it first");
+    // only the project's own repository, never another one (branch finding 6): fail closed on any mismatch
+    if (p.repo?.org !== ORG || p.repo?.name !== slug) throw status(409, `the project's repository record (${p.repo?.org}/${p.repo?.name}) does not match ${ORG}/${slug}; nothing was deleted`);
+    await cleanup();
     writeJson(file(slug), { ...p, deleting: true });
-    if (p.repo?.org === ORG && p.repo?.name === slug) {
+    let repo = null;
+    try { repo = await forgejo.api("GET", `/repos/${ORG}/${slug}`); } catch (e) {
+      if (e.status !== 404) throw status(502, `the repository could not be checked (${e.message}); try again`);
+    }
+    if (repo) {
+      if (p.repo.id !== undefined && repo.id !== p.repo.id) throw status(409, `${ORG}/${slug} on the git server is not this project's repository (id ${repo.id}, expected ${p.repo.id}); nothing was deleted`);
       try { await forgejo.api("DELETE", `/repos/${ORG}/${slug}`); } catch (e) {
         if (e.status !== 404) throw status(502, `the repository could not be deleted (${e.message}); try again`);
       }

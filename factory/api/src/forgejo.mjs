@@ -34,8 +34,9 @@ export function createForgejo({ base = "http://git:3000/api/v1", tokenFile = "/r
   }
 
   async function createProjectRepo(slug, description) {
+    let created;
     try {
-      await api("POST", `/orgs/${ORG}/repos`, { name: slug, description, private: true, auto_init: true, readme: "Default", default_branch: "main" });
+      created = await api("POST", `/orgs/${ORG}/repos`, { name: slug, description, private: true, auto_init: true, readme: "Default", default_branch: "main" });
     } catch (e) {
       if (e.status === 409) throw Object.assign(new Error(`a project named ${slug} already exists`), { status: 409 });
       throw e;
@@ -49,7 +50,7 @@ export function createForgejo({ base = "http://git:3000/api/v1", tokenFile = "/r
       await api("DELETE", `/repos/${ORG}/${slug}`).catch(() => {}); // never leave an unprotected repository behind
       throw e;
     }
-    return { org: ORG, name: slug, web_url: `http://localhost:${process.env.LEVUVO_SF_GIT_PORT ?? 3000}/${ORG}/${slug}` };
+    return { org: ORG, name: slug, id: created?.id, web_url: `http://localhost:${process.env.LEVUVO_SF_GIT_PORT ?? 3000}/${ORG}/${slug}` };
   }
 
   return { api, createProjectRepo };

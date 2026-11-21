@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { test } from "node:test";
 import { renderFeatures, renderPrd, startPrompt, TOOL_NAMES } from "../src/interview.mjs";
 import { askAndAnswer, setup, textOf, validator } from "./helpers.mjs";
@@ -248,5 +249,28 @@ test("answer attachments must be read before finishing; reading them records the
   assert.doesNotMatch(t.interview.finishProblems(iv).join(";"), /attachments/);
   await assert.rejects(t.briefing.screenAttachments("Q-002", "x"), /list of at most 10/);
   await assert.rejects(t.briefing.screenAttachments("Q-002", [{ name: "a/b.md", content_base64: "eA==" }]), /plain name/);
-  assert.throws(() => t.briefing.storeAttachments("demo", screened), /already exists/, "an attachment is never replaced");
+  const other = await t.briefing.screenAttachments(r.wait.id, [{ name: "list.md", content_base64: Buffer.from("another list").toString("base64") }]);
+  assert.throws(() => t.briefing.storeAttachments("demo", other), /already exists/, "an attachment is never replaced");
+});
+
+test("answer and attachments are one step: a failed save takes the attachments back, an identical retry works (branch finding 1)", async () => {
+  const t = await setup();
+  const r = t.call("ask_human", { finding: "f", decision_needed: "d", recommendation: { answer: "a", reason: "r" } });
+  const screened = await t.briefing.screenAttachments(r.wait.id, [{ name: "list.md", content_base64: Buffer.from("paper list").toString("base64") }]);
+  const ivFile = `${t.dataDir}/projects/demo/interview.json`;
+  // the answer cannot be saved: the interview file turns into a folder after the attachments were stored
+  assert.throws(() => t.interview.answer("demo", r.wait.id, { attachments: screened }, () => {
+    const undo = t.briefing.storeAttachments("demo", screened);
+    renameSync(ivFile, `${ivFile}.bak`);
+    mkdirSync(`${ivFile}/x`, { recursive: true });
+    return undo;
+  }));
+  rmSync(ivFile, { recursive: true });
+  renameSync(`${ivFile}.bak`, ivFile);
+  assert.ok(!t.briefing.inventory("demo").files.some((f) => f.path.startsWith("briefing/answers/")), "no unbound attachment in the inventory");
+  assert.ok(!existsSync(`${t.dataDir}/projects/demo/briefing/answers/Q-001/list.md`), "nor on disk");
+  // a leftover from an attempt whose take-back failed too: the identical retry binds it
+  t.briefing.storeAttachments("demo", screened);
+  t.interview.answer("demo", r.wait.id, { attachments: screened }, () => t.briefing.storeAttachments("demo", screened));
+  assert.deepEqual(t.interview.load("demo").log.entries[0].answer.attachments.map((a) => a.path), ["briefing/answers/Q-001/list.md"]);
 });

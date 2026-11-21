@@ -105,6 +105,7 @@ export function projectPage(ctx, slug) {
   const runCache = new Map();
   const fail = (e) => showError(err, e);
   const base = `/api/projects/${enc(slug)}`;
+  const later = () => setTimeout(() => refresh().catch(fail)); // after the button is free again
 
   async function refresh() {
     const [p, iv, inv] = await Promise.all([get(base), get(`${base}/interview`), get(`${base}/briefing`)]).catch((e) => {
@@ -112,12 +113,14 @@ export function projectPage(ctx, slug) {
       throw e;
     });
     if (!p) return false;
-    head.replaceChildren(h("header", { class: "page-head" },
+    // never replace a button whose action still runs
+    if (!head.querySelector("button:disabled")) head.replaceChildren(h("header", { class: "page-head" },
       h("div", {}, h("h1", { "data-testid": "project-title" }, p.name), h("div", { class: "head-meta" }, statusChip(iv), iv.status === "paused" && iv.last_exit_reason ? h("span", { class: "muted" }, reason(iv.last_exit_reason)) : null)),
       mainAction(p, iv, inv)));
     body.replaceChildren(
       ...(iv.open_question && iv.status !== "running" ? [card({ testid: "open-question", kind: t("kindQuestion"), kindClass: "warn", title: iv.open_question.decision_needed, lines: [t("waitingQuestion")], action: h("a", { class: "btn primary", href: `#/p/${enc(slug)}/q/${enc(iv.open_question.id)}` }, t("answer")) })] : []),
       ...(iv.status === "running" ? [h("p", { class: "working", "data-testid": "working" }, h("span", { class: "dot" }), t("agentWorking"))] : []),
+      ...scanWarning(iv.output_secret_scan),
       details(state, "prd", t("prd"), prdView(iv)),
       details(state, "features", `${t("features")} (${iv.features.length})`, featuresView(iv)),
       details(state, "briefing", `${t("briefing")} (${inv.files.length})`, briefingView(inv, p)),
@@ -130,11 +133,18 @@ export function projectPage(ctx, slug) {
 
   function mainAction(p, iv, inv) {
     if (p.deleting) return h("button", { class: "btn danger", type: "button", onclick: () => confirmDelete(p) }, icon("trash"), t("deleteProject"));
-    if (iv.active_run) return actionButton(t("pause"), async () => { await post(`${base}/interview/pause`); await refresh(); }, { kind: "", iconName: "pause", busyText: t("loading"), onError: fail, testid: "pause" });
+    if (iv.active_run) return actionButton(t("pause"), async () => { await post(`${base}/interview/pause`); later(); }, { kind: "", iconName: "pause", busyText: t("loading"), onError: fail, testid: "pause" });
     if (iv.status === "finished") return null;
     if (!inv.files.length) return null;
     const label = iv.status === "idle" ? t("start") : t("resume");
-    return actionButton(label, async () => { await post(`${base}/interview/start`); await refresh(); }, { iconName: "play", busyText: t("loading"), onError: fail, testid: "start" });
+    return actionButton(label, async () => { await post(`${base}/interview/start`); later(); }, { iconName: "play", busyText: t("loading"), onError: fail, testid: "start" });
+  }
+
+  /** A secret-scan finding or error of the last run is shown at the top, never hidden (G7.5, branch finding 9). */
+  function scanWarning(scan) {
+    if (!scan || scan.status === "clean") return [];
+    const text = scan.status === "findings" ? t("scanFindings").replace("{n}", String(scan.findings)) : `${t("scanError")}: ${scan.error ?? ""}`;
+    return [h("p", { class: "error", role: "alert", "data-testid": "scan-warning" }, icon("alert"), " ", text)];
   }
 
   function prdView(iv) {
@@ -150,19 +160,22 @@ export function projectPage(ctx, slug) {
   function featuresView(iv) {
     if (!iv.features.length) return h("p", { class: "muted" }, t("noFeatures"));
     return h("ul", { class: "plain features", "data-testid": "features" }, iv.features.map((f) => h("li", {},
-      h("div", {}, h("strong", {}, `${f.id} · ${f.name}`), " ", chip(f.priority, f.priority === "must" ? "info" : "")),
-      h("p", { class: "muted" }, f.summary))));
+      h("div", {}, h("strong", {}, `${f.id} · ${f.name}`), " ", chip(f.priority, f.priority === "must" ? "info" : ""), " ", f.status ? chip(sectionStatus(f.status)) : null),
+      h("p", { class: "muted" }, f.summary),
+      f.source && h("p", { class: "source" }, f.source))));
   }
 
+  // the controls are built once and stay mounted while the page refreshes around them (branch finding 11)
+  const input = h("input", { type: "file", multiple: true, class: "sr-only", "data-testid": "briefing-files" });
+  const add = h("label", { class: "btn" }, icon("plus"), t("addFiles"), input);
+  input.addEventListener("change", async () => {
+    add.classList.add("busy");
+    try { for (const f of input.files) await put(`${base}/briefing`, { path: f.name, content_base64: await fileToBase64(f) }); } catch (e) { fail(e); }
+    input.value = "";
+    add.classList.remove("busy");
+    await refresh().catch(fail);
+  });
   function briefingView(inv, p) {
-    const input = h("input", { type: "file", multiple: true, class: "sr-only", "data-testid": "briefing-files" });
-    const add = h("label", { class: "btn" }, icon("plus"), t("addFiles"), input);
-    input.addEventListener("change", async () => {
-      add.classList.add("busy");
-      try { for (const f of input.files) await put(`${base}/briefing`, { path: f.name, content_base64: await fileToBase64(f) }); } catch (e) { fail(e); }
-      add.classList.remove("busy");
-      await refresh().catch(fail);
-    });
     return h("div", {},
       h("ul", { class: "plain files", "data-testid": "briefing-list" }, inv.files.map((f) => h("li", {},
         h("div", { class: "row-main" },
@@ -188,7 +201,8 @@ export function projectPage(ctx, slug) {
     const rec = runCache.get(r.run_id);
     const u = rec?.usage;
     return h("li", {}, h("span", {}, when(r.started_at)), " · ", h("span", {}, reason(rec?.exit_reason ?? r.end_reason) || t("agentWorking")),
-      u ? h("span", { class: "muted" }, ` · ${t("cost")}: ${u.cost_is_lower_bound ? "≥ " : ""}$${u.estimated_cost_usd ?? "?"}${u.web_search_requests ? ` · ${u.web_search_requests} ${t("searches")}` : ""}`) : null);
+      u ? h("span", { class: "muted" }, ` · ${t("cost")}: ${u.cost_is_lower_bound ? "≥ " : ""}$${u.estimated_cost_usd ?? "?"}${u.web_search_requests ? ` · ${u.web_search_requests} ${t("searches")}` : ""}`) : null,
+      rec?.exit_detail ? h("p", { class: "muted detail" }, rec.exit_detail) : null);
   }
   async function loadRuns(iv) {
     const missing = iv.log.runs.filter((r) => !runCache.get(r.run_id)?.ended_at);
@@ -197,17 +211,26 @@ export function projectPage(ctx, slug) {
     runsView(iv);
   }
 
+  const box = h("input", { type: "checkbox", "data-testid": "web-search" });
+  let saving = false;
+  box.addEventListener("change", async () => {
+    saving = true;
+    box.disabled = true;
+    try { await put(base, { web_search: box.checked }); } catch (e) { box.checked = !box.checked; fail(e); }
+    saving = false;
+    box.disabled = false;
+  });
+  const repoLine = h("p", { class: "muted" });
+  let shown = null; // the project as last shown (for the delete dialog)
+  const props = h("div", { class: "stack" },
+    h("label", { class: "switch" }, box, h("span", {}, h("strong", {}, t("webSearch")), h("small", { class: "muted" }, t("webSearchNote")))),
+    repoLine,
+    h("div", {}, h("button", { class: "btn danger", type: "button", onclick: () => confirmDelete(shown), "data-testid": "delete-project" }, icon("trash"), t("deleteProject"))));
   function propsView(p) {
-    const box = h("input", { type: "checkbox", checked: p.web_search === true, disabled: !!p.deleting, "data-testid": "web-search" });
-    box.addEventListener("change", async () => {
-      box.disabled = true;
-      try { await put(base, { web_search: box.checked }); } catch (e) { box.checked = !box.checked; fail(e); }
-      box.disabled = false;
-    });
-    return h("div", { class: "stack" },
-      h("label", { class: "switch" }, box, h("span", {}, h("strong", {}, t("webSearch")), h("small", { class: "muted" }, t("webSearchNote")))),
-      p.repo?.web_url ? h("p", { class: "muted" }, `${t("repo")}: ${p.repo.org}/${p.repo.name}`) : null,
-      h("div", {}, h("button", { class: "btn danger", type: "button", onclick: () => confirmDelete(p), "data-testid": "delete-project" }, icon("trash"), t("deleteProject"))));
+    shown = p;
+    if (!saving) { box.checked = p.web_search === true; box.disabled = !!p.deleting; }
+    repoLine.textContent = p.repo ? `${t("repo")}: ${p.repo.org}/${p.repo.name}` : "";
+    return props;
   }
 
   function confirmDelete(p) {
@@ -243,6 +266,7 @@ export function questionPage(ctx, slug, qid) {
   const node = h("section", {});
   const notice = h("p", { class: "notice", hidden: true });
   let built = false;
+  let answered = false;
   async function refresh() {
     const [p, iv] = await Promise.all([get(base), get(`${base}/interview`)]);
     const entry = iv.log.entries.find((e) => e.question.id === qid);
@@ -254,13 +278,20 @@ export function questionPage(ctx, slug, qid) {
         notice,
         h("div", { class: "card question" }, questionHead(entry.question),
           entry.answer ? null : questionForm(entry.question, async (body) => {
-            await post(`${base}/interview/answer`, { question_id: qid, ...body });
-            go(`#/p/${enc(slug)}`);
+            const r = await post(`${base}/interview/answer`, { question_id: qid, ...body });
+            if (!r.resume_error) return go(`#/p/${enc(slug)}`);
+            // saved, but the interview could not go on by itself: say why and offer to resume (branch finding 8)
+            answered = true;
+            node.querySelector("form")?.remove();
+            notice.hidden = false;
+            notice.replaceChildren(h("span", { "data-testid": "resume-error" }, `${t("savedNotResumed")}: ${r.resume_error}`), " ",
+              actionButton(t("resume"), async () => { await post(`${base}/interview/start`); go(`#/p/${enc(slug)}`); }, { iconName: "play", busyText: t("loading"), onError: (e) => notice.append(h("p", { class: "error" }, e.message)) }));
           })));
     }
-    if (entry.answer) { // answered here or elsewhere: no second answer (finding 9)
+    if (answered) return !!iv.active_run;
+    if (entry.answer || iv.open_question?.id !== qid) { // answered elsewhere, or replaced by a newer question: no answer here
       notice.hidden = false;
-      notice.replaceChildren(t("alreadyAnswered"), " ", h("a", { href: `#/p/${enc(slug)}` }, t("backToProject")));
+      notice.replaceChildren(entry.answer ? t("alreadyAnswered") : t("noLongerOpen"), " ", h("a", { href: `#/p/${enc(slug)}` }, t("backToProject")));
       node.querySelector("form")?.remove();
     }
     return !!iv.active_run;

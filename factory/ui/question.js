@@ -4,6 +4,8 @@ import { fileToBase64 } from "./api.js";
 import { chip, errorBox, h, icon, showError } from "./dom.js";
 import { t } from "./i18n.js";
 
+const MAX_ATTACHMENTS = 20 * 1024 * 1024;
+
 /** The answer body for the API from the form state (also used by the tests through the UI). */
 export function answerBody(q, choice, note) {
   const n = note.trim();
@@ -47,6 +49,8 @@ export function questionForm(q, onSubmit) {
     const body = answerBody(q, choice(), note.value);
     const list = [...files.files];
     if (choice() === "own" && !body.text && !list.length) return showError(err, new Error(t("needAnswer")));
+    // the API takes one request of at most 28 MB (base64): check the total before reading any file (branch finding 12)
+    if (list.reduce((n, f) => n + f.size, 0) > MAX_ATTACHMENTS) return showError(err, new Error(t("tooLarge")));
     send.disabled = true;
     send.textContent = t("sending");
     try {

@@ -304,6 +304,7 @@ export function createInterview({ dataDir, briefing, validator, settings }) {
     const e = iv.log.entries.find((x) => x.question.id === questionId);
     if (!e) throw Object.assign(new Error("no such question"), { status: 404 });
     if (e.answer) throw Object.assign(new Error("this question is already answered"), { status: 409 });
+    if (actionableQuestion(iv) !== questionId) throw Object.assign(new Error("this question is no longer open (a newer question or the end of the interview replaced it)"), { status: 409 });
     const opts = e.question.options ?? [];
     if (chosen_option !== undefined && (!Number.isInteger(chosen_option) || chosen_option < 0 || chosen_option >= opts.length)) throw Object.assign(new Error("chosen_option does not exist"), { status: 400 });
     const t = String(answerText).trim();
@@ -312,16 +313,27 @@ export function createInterview({ dataDir, briefing, validator, settings }) {
     e.answer = { text: t || (chosen_option !== undefined ? opts[chosen_option].label : ""), ...(chosen_option !== undefined ? { chosen_option } : {}), ...(files.length ? { attachments: files } : {}), answered_by: "human", answered_at: new Date().toISOString() };
     const qErr = validator.check("question", { question: e.question, answer: e.answer });
     if (qErr) throw Object.assign(new Error(`answer invalid: ${qErr}`), { status: 400 });
-    store();
+    const undo = store();
     iv.unread_attachments.push(...attachments.filter(({ entry }) => entry.readable).map(({ entry }) => entry.path));
     const waiting = iv.open_question === questionId && iv.status === "waiting_for_human";
     if (iv.open_question === questionId) iv.open_question = null;
     if (waiting) iv.status = "running";
-    save(slug, iv);
+    // answer and attachments are one step: if the answer cannot be saved, the stored attachments are taken back
+    // (branch finding 1)
+    try { save(slug, iv); } catch (err) { try { undo?.(); } catch { /* an identical retry reuses them */ } throw err; }
     return waiting ? json({ question_id: questionId, answer: e.answer.text, ...(chosen_option !== undefined ? { chosen_option, chosen_label: opts[chosen_option].label } : {}), ...attachmentNote(attachments), answered_at: e.answer.answered_at }) : null;
   }
 
   return { load, save, call, answer, briefingChanged, finishProblems };
+}
+
+/** The one question the owner can answer now: the one a run waits for, or after a pause the latest question if it is
+ * still unanswered. Older unanswered questions were replaced and stay history (branch finding 7). */
+export function actionableQuestion(iv) {
+  if (iv.status === "waiting_for_human") return iv.open_question ?? null;
+  if (iv.status !== "paused") return null;
+  const last = iv.log.entries.at(-1);
+  return last && !last.answer ? last.question.id : null;
 }
 
 /** What the agent learns about answer attachments: paths only; it reads them itself (G2.5). */

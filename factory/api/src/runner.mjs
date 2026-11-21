@@ -14,6 +14,7 @@ import { readUsage, summarize } from "./usage.mjs";
 
 const MAX_REQUEST = 256 * 1024;
 const TOKEN_SPARE_MS = 3600_000; // the token stays valid this long beyond the wait and idle times; renewed on activity
+const ENDING_WAIT_MS = 60_000; // an answer waits this long for a run that is still ending before it resumes
 const REPEAT_LIMIT = 3; // the same failing tool call this often in a row stops the run (G13.1)
 
 /** A real directory, not a symbolic link (the run's tool channel, branch review finding 5). */
@@ -76,6 +77,8 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
     {
       const project = projectOf(slug);
       if (project.deleting) throw Object.assign(new Error("the project is being deleted"), { status: 409 });
+      // never a second run while one of this project still lives or ends, whatever the stored status (branch finding 4)
+      if (isActive(slug)) throw Object.assign(new Error("a run of this project is still active or ending"), { status: 409 });
       const iv = interview.load(slug);
       if (iv.status === "running" || iv.status === "waiting_for_human") throw Object.assign(new Error("the interview is already running"), { status: 409 });
       if (iv.status === "finished") throw Object.assign(new Error("the interview is finished"), { status: 409 });
@@ -117,7 +120,9 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       iv.last_exit_reason = null;
       iv.log.runs.push({ run_id: id, started_at: record.started_at });
       interview.save(slug, iv);
-      const state = { id, slug, token, serverTools: record.web_search ? ["web_search"] : [], containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base, lastFail: null };
+      let ended;
+      const endedP = new Promise((r) => { ended = r; });
+      const state = { id, slug, token, ended, endedP, serverTools: record.web_search ? ["web_search"] : [], containerId: null, pending: new Map(), stopReason: null, seen: new Set(), timers: {}, waitMs, idleMs: s.idle_stop_minutes * 60_000, base, lastFail: null };
       renewToken(state);
       active.set(id, state);
       return { id, env, state, model: role.model, effort: role.effort };
@@ -206,22 +211,37 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
    * run (scope review finding 1). */
   async function answer(slug, questionId, body) {
     const screened = body.attachments?.length ? await briefing.screenAttachments(questionId, body.attachments) : [];
+    const ending = [];
     const out = await lock(slug, async () => {
       if (projectOf(slug).deleting) throw Object.assign(new Error("the project is being deleted"), { status: 409 });
+      const stored = interview.load(slug);
+      if (stored.active_run && !active.has(stored.active_run)) closeOpen(slug, "finish_failed"); // a stale run first
       const result = interview.answer(slug, questionId, { ...body, attachments: screened }, () => briefing.storeAttachments(slug, screened));
+      let delivered = false;
       for (const [id, st] of active) {
-        if (st.slug !== slug || !st.pending.has(questionId)) continue;
+        if (st.slug !== slug) continue;
+        // a run that is stopping or ending never gets the answer; the next run does (branch finding 3)
+        if (st.stopReason || st.finished) { ending.push(st.endedP); continue; }
+        if (!st.pending.has(questionId)) continue;
         const reqId = st.pending.get(questionId);
         st.pending.delete(questionId);
         clearTimeout(st.timers.wait);
         renewToken(st);
-        if (result) respond(id, reqId, result);
+        if (result) { respond(id, reqId, result); delivered = true; }
         resetIdle(id);
       }
-      return { delivered: result !== null };
+      return { delivered };
     });
-    if (!out.delivered && !isActive(slug) && interview.load(slug).status === "paused") {
-      try { out.resumed = (await start(slug)).run_id; } catch (e) { out.resume_error = e.message; }
+    if (!out.delivered) {
+      // wait (outside the lock) until an ending run is closed, then resume once
+      let timer;
+      const settled = await Promise.race([Promise.all(ending).then(() => true), new Promise((r) => { timer = setTimeout(() => r(false), ENDING_WAIT_MS); })]);
+      clearTimeout(timer);
+      const iv = interview.load(slug);
+      if (!settled) out.resume_error = "the previous run is still ending; resume the interview in a moment";
+      else if (!isActive(slug) && iv.status === "paused") {
+        try { out.resumed = (await start(slug)).run_id; } catch (e) { out.resume_error = e.message; }
+      }
     }
     return out;
   }
@@ -253,16 +273,14 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
   async function finishOnce(id, st, forced, detail, exitCode) {
     try { await finalize(id, st, forced, detail, exitCode); } catch (e) {
       log({ action: "finish_failed", run: id, error: e.message });
-      // the interview must never stay "running" (scope review finding 2); what is left over (container, token, record)
-      // is cleaned up by reconcile() before the next start, or by recover() after a restart
-      await lock(st.slug, () => {
-        const iv = interview.load(st.slug);
-        endInInterview(iv, id, new Date().toISOString(), "finish_failed");
-        interview.save(st.slug, iv);
-      }).catch((e2) => log({ action: "finish_failed", run: id, error: e2.message }));
+      // the interview must never stay "running" and the run record never open (scope finding 2, branch finding 5);
+      // what is left over (container, token) is cleaned up by reconcile() before the next start or a deletion
+      active.delete(id);
+      await lock(st.slug, () => closeOpen(st.slug, "finish_failed")).catch((e2) => log({ action: "finish_failed", run: id, error: e2.message }));
     } finally {
       try { rmSync(st.base, { recursive: true, force: true }); } catch { /* reconcile retries */ }
       active.delete(id);
+      st.ended();
     }
   }
 
@@ -358,36 +376,41 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
     for (const d of readdirSync(dirs.runs)) if (!active.has(d)) rmSync(`${dirs.runs}/${d}`, { recursive: true, force: true });
   }
 
-  /** Closes an interview's run that no live run owns any more: record ended with the usage the gateway saw, interview
-   * paused (a finished interview stays finished). */
-  function closeStale(slug, iv, reason) {
-    const id = iv.active_run;
+  /** Closes every run of a project that no live run owns but is still open: its record (ended, with the usage the
+   * gateway saw) and its interview entry; the interview is then paused (a finished interview stays finished). Works
+   * from the interview's run list, so a record is closed even when `active_run` was already cleared (branch finding 5). */
+  function closeOpen(slug, reason) {
+    const iv = interview.load(slug);
     const now = new Date().toISOString();
-    const rec = readJson(runPath(id), null);
-    if (rec && !rec.ended_at) {
-      const usage = summarize(readUsage(`${dirs.usage}/${id}.jsonl`), prices);
-      writeJson(runPath(id), { ...rec, ended_at: now, exit_reason: reason, usage: { ...usage, cost_is_lower_bound: true, note: "run interrupted: calls in flight may be missing" } });
+    let changed = false;
+    const ids = new Set(iv.log.runs.map((r) => r.run_id));
+    if (iv.active_run) ids.add(iv.active_run);
+    for (const id of ids) {
+      if (active.has(id)) continue;
+      try {
+        const rec = readJson(runPath(id), null);
+        if (rec && !rec.ended_at) {
+          const usage = summarize(readUsage(`${dirs.usage}/${id}.jsonl`), prices);
+          writeJson(runPath(id), { ...rec, ended_at: now, exit_reason: reason, usage: { ...usage, cost_is_lower_bound: true, note: "run interrupted: calls in flight may be missing" } });
+        }
+      } catch (e) { log({ action: "run_record_unwritable", run: id, error: e.message }); } // the interview is still closed
+      if (iv.active_run === id || !iv.log.runs.find((r) => r.run_id === id)?.ended_at) { endInInterview(iv, id, now, reason); changed = true; }
     }
-    endInInterview(iv, id, now, reason);
-    interview.save(slug, iv);
+    if (changed) interview.save(slug, iv);
   }
 
   /** Before every start, under the project lock: nothing of an earlier run may be left (container, token) and a
    * stored run the runner does not know is closed (scope review finding 2). A cleanup failure refuses the start. */
   async function reconcile(slug) {
     try { await removeOrphans(); } catch (e) { throw Object.assign(new Error(`an earlier run could not be cleaned up yet: ${e.message}`), { status: 503 }); }
-    const iv = interview.load(slug);
-    if (iv.active_run && !active.has(iv.active_run)) closeStale(slug, iv, "finish_failed");
+    closeOpen(slug, "finish_failed");
   }
 
   /** After a factory restart: keep the transcripts of leftover run containers and remove them, revoke all tokens,
    * finalize open run records with the usage the gateway recorded (unknown when missing, finding 4). */
   async function recover(slugs) {
     await removeOrphans().catch((e) => log({ action: "recover_failed", error: e.message }));
-    for (const slug of slugs) {
-      const iv = interview.load(slug);
-      if (iv.active_run) closeStale(slug, iv, "factory_restarted");
-    }
+    for (const slug of slugs) closeOpen(slug, "factory_restarted");
   }
 
   /** Whether the stored run of an interview is still live in this process (else the API shows it as paused). */
@@ -395,5 +418,5 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
 
   const runRecord = (id) => readJson(runPath(id), null);
   const isActive = (slug) => [...active.values()].some((st) => st.slug === slug);
-  return { start, answer, pause, stop, shutdown, recover, runRecord, isActive, isLive, active };
+  return { start, answer, pause, stop, shutdown, recover, reconcile, runRecord, isActive, isLive, active };
 }

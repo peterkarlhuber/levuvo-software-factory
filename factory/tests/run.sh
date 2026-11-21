@@ -45,7 +45,8 @@ build -t levuvo-sf/worker:local "$FACTORY/worker"
 build -t levuvo-sf/factory:local -f "$FACTORY/api/Dockerfile" "$FACTORY/.."
 build -t levuvo-sf/ui-test:local "$FACTORY/tests/ui"
 cleanup
-dc up -d >/dev/null 2>&1 || { dc logs; echo "✗ docker compose up failed"; exit 1; }
+# README step 1 exactly (`up -d --build`; the images above are its build cache, built with the optional extra CA)
+dc up -d --build >/dev/null 2>&1 || { dc logs; echo "✗ docker compose up -d --build failed"; exit 1; }
 wait_init() { check "${1:-git-init finished without error}" "${2:-0}" "$(docker wait "$P-git-init-1")"; }
 wait_init
 for s in egress-model egress-build model-gateway factory; do
@@ -261,20 +262,20 @@ echo "› the API key appears nowhere else"
 if dc logs 2>&1 | grep -qF "$TEST_KEY"; then bad "the API key is in no container log"; else ok "the API key is in no container log"; fi
 if dc exec -T factory sh -c "grep -rqsF '$TEST_KEY' /var/lib/levuvo /run/levuvo"; then bad "the API key is nowhere in the factory's data"; else ok "the API key is nowhere in the factory's data"; fi
 
-echo "› docker compose stop ends active runs cleanly"
+echo "› README step 6: docker compose stop ends active runs cleanly, docker compose start brings everything back"
 post /api/projects/e2e-timeout/interview/start '{}' >/dev/null
 check "the agent asks" waiting_for_human "$(wait_iv e2e-timeout waiting_for_human 120)"
-dc stop factory >/dev/null 2>&1
+dc stop >/dev/null 2>&1
 check "no run container is left" 0 "$(docker ps -a --filter label=dev.levuvo-sf.project=$P --filter label=dev.levuvo-sf.run -q | wc -l | xargs)"
-check "no run token is left" 0 "$(dc exec -T model-gateway sh -c 'ls /run/levuvo/tokens | wc -l' | xargs)"
-dc start factory >/dev/null 2>&1
+check "no run token is left" 0 "$(docker run --rm -v "${P}_run-tokens:/t:ro" --entrypoint sh levuvo-sf/egress-proxy:local -c 'ls /t | wc -l' | xargs)"
+dc start >/dev/null 2>&1
 for _ in $(seq 1 60); do [[ "$(docker inspect -f '{{.State.Health.Status}}' "$P-factory-1")" == healthy ]] && break; sleep 1; done
 check "the run ended as factory_stopped and the interview is paused" "factory_stopped paused" "$(get /api/projects/e2e-timeout/interview | json 'd.last_exit_reason+" "+d.status')"
 check "its usage was recorded" true "$(get "/api/runs/$(get /api/projects/e2e-timeout/interview | json 'd.log.runs.at(-1).run_id')" | json 'd.usage.calls>0')"
 
-echo "› restart keeps data and password"
+echo "› restart keeps data and password (down, then README step 7 without git pull: up -d --build)"
 dc down >/dev/null 2>&1
-dc up -d >/dev/null 2>&1
+dc up -d --build >/dev/null 2>&1
 wait_init
 check "same password works after restart" levuvo-admin "$(admin "$GIT/api/v1/user" | json 'd.login')"
 check "repository survived the restart" 200 "$(admin -o /dev/null -w '%{http_code}' "$GIT/api/v1/repos/levuvo-sf/probe")"
