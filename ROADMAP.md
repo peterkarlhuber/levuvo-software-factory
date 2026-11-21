@@ -20,13 +20,16 @@ One line per item: what it is and where it stands. An item is worked out only wh
 ## Next (V1)
 - iPhone access via Tailscale with sign-in – right after block 3
 - Block 4: the rest of parts A and B (A3–A6, B1–B7) with the CI gates in Forgejo, incl. a "simplest solution that meets the spec" rule in the build and review skills, a complexity limit lint gate, and Playwright browser tests (Chromium + WebKit) in the `nextjs-postgres` stack profile
+- Billing switchable between API and subscription (subscription mode still to build)
+- Briefing: Git LFS for large files and conversion of files agents cannot read where possible
+- Cost and time brakes as settings, default no limit
 - Part D: backlog and prioritization
 - Part C: bug or change
 - V1 check: build a first small real project end to end with the factory
 - Set up the home server (GMKtec NucBox) as a second place to run the factory – when it arrives
 
 ## After V1
-- Stacks discussion (must happen): which stack profiles to add and how – everything possible, but deliberately and targeted
+- Stacks discussion (must happen): which stack profiles to add, in what order and how – broad support as the goal, each profile added deliberately
 - More languages and industrial/PLC code as new stack profiles
 - Import an existing project (ZIP/Git) with a project-specific custom stack profile
 - Several repos per project – first try folders in one repo or linked factory projects
@@ -34,7 +37,7 @@ One line per item: what it is and where it stands. An item is worked out only wh
 - Own libraries as dependencies
 - PRD plausibility check before A3 – only if real projects show it is needed
 - Final factory UI design, ideally built by the factory itself
-- Lift the V1 simplifications: design preview in A4, license and accessibility gates, "test red before code" check blocking, automatic lesson promotion, prompt-injection detection
+- Lift the V1 simplifications: design preview in A4, license and accessibility gates, "test red before code or fix" check blocking, automatic lesson promotion, prompt-injection detection
 - Parallel features
 - GitHub archive mirror
 - iPhone push notifications
