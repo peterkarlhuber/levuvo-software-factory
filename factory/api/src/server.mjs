@@ -232,13 +232,14 @@ export function createProjects({ dataDir, forgejo, readJson, writeJson }) {
     // only the project's own repository, never another one (branch finding 6): fail closed on any mismatch
     if (p.repo?.org !== ORG || p.repo?.name !== slug) throw status(409, `the project's repository record (${p.repo?.org}/${p.repo?.name}) does not match ${ORG}/${slug}; nothing was deleted`);
     await cleanup();
-    writeJson(file(slug), { ...p, deleting: true });
     let repo = null;
     try { repo = await forgejo.api("GET", `/repos/${ORG}/${slug}`); } catch (e) {
       if (e.status !== 404) throw status(502, `the repository could not be checked (${e.message}); try again`);
     }
+    // identity checked before anything is marked or deleted (re-check finding 3)
+    if (repo && p.repo.id !== undefined && repo.id !== p.repo.id) throw status(409, `${ORG}/${slug} on the git server is not this project's repository (id ${repo.id}, expected ${p.repo.id}); nothing was deleted`);
+    writeJson(file(slug), { ...p, deleting: true }); // right before the first destructive step
     if (repo) {
-      if (p.repo.id !== undefined && repo.id !== p.repo.id) throw status(409, `${ORG}/${slug} on the git server is not this project's repository (id ${repo.id}, expected ${p.repo.id}); nothing was deleted`);
       try { await forgejo.api("DELETE", `/repos/${ORG}/${slug}`); } catch (e) {
         if (e.status !== 404) throw status(502, `the repository could not be deleted (${e.message}); try again`);
       }

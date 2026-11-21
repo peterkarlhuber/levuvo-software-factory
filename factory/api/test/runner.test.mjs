@@ -630,6 +630,7 @@ test("delete project: fails closed on a foreign repository and when an earlier r
   assert.equal(d1.status, 409);
   assert.match(d1.body.error, /not this project's repository/);
   assert.deepEqual(git, ["GET /repos/levuvo-sf/tennis-club"]);
+  assert.equal(w.projects.get("tennis-club").deleting, undefined, "not marked: the project stays usable (re-check finding 3)");
   // a leftover run container that cannot be removed refuses the deletion before anything changes
   const ghost = await w.docker.create("levuvo-sf-run-ghost1", { Labels: { "dev.levuvo-sf.run": "run-ghost1", "dev.levuvo-sf.project": "levuvo-sf-test" } });
   w.docker.remove = async () => { throw new Error("docker-proxy down"); };
@@ -699,6 +700,31 @@ test("an answer that arrives while the run ends is not handed to it; the intervi
   const iv = (await w.call("GET", "/api/projects/tennis-club/interview")).body;
   assert.equal(iv.log.runs.length, 2, "exactly one new run");
   assert.equal(iv.log.entries[0].answer.text, "Nur Mitglieder");
+  w.api.close();
+});
+
+test("an answer to a run whose end failed half-way still resumes; leftover unbound attachments are removed (re-check findings 1 and 2)", async () => {
+  let runs = 0;
+  const w = await world(async () => { runs++; return 0; });
+  await newProject(w);
+  const iv = w.interview.load("tennis-club");
+  // a run that asked, then ended without its end being saved: the interview still says waiting, nobody runs it
+  iv.log.runs.push({ run_id: "run-ghost1", started_at: new Date().toISOString() });
+  Object.assign(iv, { status: "running", active_run: "run-ghost1" });
+  w.interview.save("tennis-club", iv);
+  w.interview.call("tennis-club", { id: "run-ghost1" }, "read_briefing", {});
+  assert.ok(w.interview.call("tennis-club", { id: "run-ghost1" }, "ask_human", { finding: "f", decision_needed: "Members only?", recommendation: { answer: "Yes", reason: "r" } }).wait);
+  assert.equal(w.interview.load("tennis-club").status, "waiting_for_human");
+  writeJson(join(w.dirs.data, "runs/run-ghost1/run.json"), { run_id: "run-ghost1", ended_at: null, tool_calls: 0 });
+  // an earlier answer attempt stored a file, then the factory stopped before the answer was saved
+  w.briefing.storeAttachments("tennis-club", await w.briefing.screenAttachments("Q-001", [{ name: "old.md", content_base64: b64("old") }]));
+  const ans = (await w.call("POST", "/api/projects/tennis-club/interview/answer", { question_id: "Q-001", text: "Nur Mitglieder" })).body;
+  assert.equal(ans.delivered, false, JSON.stringify(ans));
+  assert.match(ans.resumed, /^run-/, JSON.stringify(ans));
+  assert.ok(!w.briefing.inventory("tennis-club").files.some((f) => f.path.startsWith("briefing/answers/")), "the unbound attachment is gone");
+  assert.equal(w.runner.runRecord("run-ghost1").exit_reason, "finish_failed");
+  assert.ok(await waitFor(() => !w.runner.isActive("tennis-club")));
+  assert.equal(runs, 1);
   w.api.close();
 });
 

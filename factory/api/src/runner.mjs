@@ -216,6 +216,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       if (projectOf(slug).deleting) throw Object.assign(new Error("the project is being deleted"), { status: 409 });
       const stored = interview.load(slug);
       if (stored.active_run && !active.has(stored.active_run)) closeOpen(slug, "finish_failed"); // a stale run first
+      dropUnboundAttachments(slug);
       const result = interview.answer(slug, questionId, { ...body, attachments: screened }, () => briefing.storeAttachments(slug, screened));
       let delivered = false;
       for (const [id, st] of active) {
@@ -237,9 +238,10 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       let timer;
       const settled = await Promise.race([Promise.all(ending).then(() => true), new Promise((r) => { timer = setTimeout(() => r(false), ENDING_WAIT_MS); })]);
       clearTimeout(timer);
-      const iv = interview.load(slug);
+      // the normal start path (it reconciles a run end that failed half-way); every failure is reported, unless
+      // another run already resumed the interview (re-check finding 2)
       if (!settled) out.resume_error = "the previous run is still ending; resume the interview in a moment";
-      else if (!isActive(slug) && iv.status === "paused") {
+      else if (!isActive(slug) && interview.load(slug).status !== "finished") {
         try { out.resumed = (await start(slug)).run_id; } catch (e) { out.resume_error = e.message; }
       }
     }
@@ -404,6 +406,13 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
   async function reconcile(slug) {
     try { await removeOrphans(); } catch (e) { throw Object.assign(new Error(`an earlier run could not be cleaned up yet: ${e.message}`), { status: 503 }); }
     closeOpen(slug, "finish_failed");
+    dropUnboundAttachments(slug);
+  }
+
+  /** Answer attachments no saved answer names are leftovers of an interrupted answer (re-check finding 1). */
+  function dropUnboundAttachments(slug) {
+    const bound = new Set(interview.load(slug).log.entries.flatMap((e) => (e.answer?.attachments ?? []).map((a) => a.path)));
+    briefing.dropUnbound(slug, bound);
   }
 
   /** After a factory restart: keep the transcripts of leftover run containers and remove them, revoke all tokens,

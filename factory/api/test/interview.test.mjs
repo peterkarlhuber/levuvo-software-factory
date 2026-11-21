@@ -269,8 +269,13 @@ test("answer and attachments are one step: a failed save takes the attachments b
   renameSync(`${ivFile}.bak`, ivFile);
   assert.ok(!t.briefing.inventory("demo").files.some((f) => f.path.startsWith("briefing/answers/")), "no unbound attachment in the inventory");
   assert.ok(!existsSync(`${t.dataDir}/projects/demo/briefing/answers/Q-001/list.md`), "nor on disk");
-  // a leftover from an attempt whose take-back failed too: the identical retry binds it
+  // a leftover of an attempt the factory did not survive (stored, answer never saved) is unbound and removed
   t.briefing.storeAttachments("demo", screened);
+  t.briefing.dropUnbound("demo", new Set());
+  assert.ok(!t.briefing.inventory("demo").files.some((f) => f.path.startsWith("briefing/answers/")));
+  assert.ok(!existsSync(`${t.dataDir}/projects/demo/briefing/answers/Q-001/list.md`));
   t.interview.answer("demo", r.wait.id, { attachments: screened }, () => t.briefing.storeAttachments("demo", screened));
   assert.deepEqual(t.interview.load("demo").log.entries[0].answer.attachments.map((a) => a.path), ["briefing/answers/Q-001/list.md"]);
+  t.briefing.dropUnbound("demo", new Set(["briefing/answers/Q-001/list.md"]));
+  assert.ok(existsSync(`${t.dataDir}/projects/demo/briefing/answers/Q-001/list.md`), "a bound attachment stays");
 });

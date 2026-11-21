@@ -13,7 +13,14 @@ FACTORY="$(pwd)"
 P=levuvo-sf-test
 export LEVUVO_SF_GIT_PORT=${LEVUVO_SF_TEST_GIT_PORT:-3999}
 export LEVUVO_SF_API_PORT=${LEVUVO_SF_TEST_API_PORT:-3998}
-dc() { docker compose --project-directory "$FACTORY" -f "$FACTORY/compose.yaml" -f "$FACTORY/tests/compose.test.yaml" -p "$P" "$@"; }
+COMPOSE_FILES=(-f "$FACTORY/compose.yaml" -f "$FACTORY/tests/compose.test.yaml")
+if [[ -n "${LEVUVO_SF_EXTRA_CA:-}" ]]; then # behind a TLS-intercepting proxy (cloud sessions) `up --build` needs its CA too
+  CA_OVERRIDE="$(mktemp -d)/compose.ca.yaml"
+  { printf 'secrets:\n  extra_ca: { file: %s }\nservices:\n' "$LEVUVO_SF_EXTRA_CA"
+    for s in egress-model egress-build model-gateway worker-image factory; do printf '  %s: { build: { network: host, secrets: [extra_ca] } }\n' "$s"; done; } > "$CA_OVERRIDE"
+  COMPOSE_FILES+=(-f "$CA_OVERRIDE")
+fi
+dc() { docker compose --project-directory "$FACTORY" "${COMPOSE_FILES[@]}" -p "$P" "$@"; }
 TEST_KEY=sk-ant-test-e2e-0123456789abcdefghijklmnop
 
 fails=0

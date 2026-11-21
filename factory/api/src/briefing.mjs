@@ -8,7 +8,7 @@
 //   unreadable with the reason, and the interviewer asks the human about it (GA1.5).
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readJson, writeAtomic, writeJson } from "./store.mjs";
@@ -136,17 +136,12 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
     }
     return out;
   }
-  /** Stores screened answer attachments; returns a function that takes them back if the answer cannot be saved. The
-   * caller has checked that the question is unanswered, so a file already at the path is a leftover of a failed
-   * attempt: the identical file is reused, a different one refused (branch finding 1). */
+  /** Stores screened answer attachments; returns a function that takes them back if the answer cannot be saved
+   * (branch finding 1). Leftovers of an attempt the process did not survive are removed by dropUnbound() first. */
   function storeAttachments(slug, screened) {
     const inv = inventory(slug);
-    const fresh = [];
-    for (const s of screened) {
-      const old = inv.files.find((x) => x.path === s.entry.path);
-      if (!old) fresh.push(s);
-      else if (old.sha256 !== s.entry.sha256) throw httpError(409, `${s.entry.path} already exists`);
-    }
+    for (const { entry } of screened) if (inv.files.some((x) => x.path === entry.path)) throw httpError(409, `${entry.path} already exists`);
+    const fresh = screened;
     if (!fresh.length) return () => {};
     const files = inv.files.concat(fresh.map((s) => s.entry)).sort((a, b) => a.path.localeCompare(b.path));
     const err = validator.check("inventory", { ...inv, files });
@@ -161,6 +156,17 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
       saveInventory(slug, { ...now, files: now.files.filter((f) => !fresh.some((s) => s.entry.path === f.path)) }, true);
       drop();
     };
+  }
+
+  /** Removes answer attachments that no saved answer names (files and inventory entries): what an answer attempt
+   * leaves when the factory stops between storing the files and saving the answer (re-check finding 1). */
+  function dropUnbound(slug, bound) {
+    const inv = inventory(slug);
+    const files = inv.files.filter((f) => !isAnswerPath(f.path) || bound.has(f.path));
+    let onDisk = [];
+    try { onDisk = readdirSync(`${dir(slug)}/briefing/answers`, { recursive: true, withFileTypes: true }).filter((d) => d.isFile()).map((d) => `${d.parentPath}/${d.name}`.slice(dir(slug).length + 1)); } catch { /* none */ }
+    for (const p of onDisk) if (!bound.has(p)) rmSync(`${dir(slug)}/${p}`, { force: true });
+    if (files.length !== inv.files.length) saveInventory(slug, { ...inv, files }, true);
   }
 
   function remove(slug, rawPath) {
@@ -194,7 +200,7 @@ export function createBriefing({ dataDir, validator, scan = scanText, scannerNam
     return null;
   }
 
-  return { put, remove, inventory, readForAgent, tag, screenAttachments, storeAttachments };
+  return { put, remove, inventory, readForAgent, tag, screenAttachments, storeAttachments, dropUnbound };
 }
 
 /** Answer attachments live under briefing/answers/ and are bound to their answer. */
