@@ -338,9 +338,10 @@ test("token renewed while the run lives; docker compose stop ends runs cleanly (
 });
 
 test("agent outputs and the transcript are secret-scanned at the end; findings are shown, nothing changed (branch review finding 9)", async () => {
+  let n = 0;
   const w = await world(async ({ runId }) => {
     await tool(w.dirs, runId, "read_briefing", {});
-    await tool(w.dirs, runId, "update_prd_section", { section: 1, status: "drafted", content: "key AKIA-LIKE", source: "briefing/notes.md" });
+    await tool(w.dirs, runId, "update_prd_section", { section: 1, status: "drafted", content: ++n === 1 ? "key AKIA-LIKE" : "clean now", source: "briefing/notes.md" });
     return 0;
   }, {}, { scan: async (buf) => (buf.toString().includes("AKIA-LIKE") ? 1 : 0) });
   await newProject(w);
@@ -350,6 +351,12 @@ test("agent outputs and the transcript are secret-scanned at the end; findings a
   assert.equal(view.output_secret_scan.status, "findings");
   assert.equal(view.prd[1].content, "key AKIA-LIKE", "nothing changed silently");
   assert.equal(w.runner.runRecord(view.log.runs[0].run_id).output_secret_scan.findings, 1);
+  // the next run is clean: the view shows the latest result, the old run record keeps its finding (re-check finding 3)
+  await w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  await waitEnd(w);
+  const view2 = (await w.call("GET", "/api/projects/tennis-club/interview")).body;
+  assert.equal(view2.output_secret_scan.status, "clean");
+  assert.equal(w.runner.runRecord(view.log.runs[0].run_id).output_secret_scan.status, "findings");
   w.api.close();
 });
 
@@ -361,5 +368,27 @@ test("parallel briefing uploads both land in the inventory (branch review findin
   assert.ok(rs.every((r) => r.status === 200));
   const inv = (await w.call("GET", "/api/projects/tennis-club/briefing")).body;
   assert.deepEqual(inv.files.map((f) => f.path).sort(), ["briefing/a.md", "briefing/b.md", "briefing/c.md", "briefing/d.md", "briefing/notes.md"]);
+  w.api.close();
+});
+
+test("shutdown while a container is being created: no orphan container, no token, no new runs (re-check finding 1)", async () => {
+  const w = await world(async () => { await new Promise(() => {}); });
+  await newProject(w);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const create = w.docker.create;
+  w.docker.create = async (...a) => { await gate; return create(...a); };
+  const started = w.call("POST", "/api/projects/tennis-club/interview/start", {});
+  for (let i = 0; i < 100 && !w.runner.isActive("tennis-club"); i++) await sleep(5);
+  const down = w.runner.shutdown();
+  await sleep(30);
+  release();
+  const ids = await down;
+  assert.equal((await started).status, 200);
+  assert.equal(ids.length, 1);
+  assert.ok([...w.docker.containers.values()].every((c) => c.removed), "the late container was stopped and removed");
+  assert.deepEqual(readdirSync(w.dirs.tokens), []);
+  assert.equal(w.runner.runRecord(ids[0]).exit_reason, "factory_stopped");
+  assert.equal((await w.call("POST", "/api/projects/tennis-club/interview/start", {})).status, 503);
   w.api.close();
 });

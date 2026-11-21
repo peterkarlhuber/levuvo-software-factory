@@ -38,15 +38,28 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
 
   function tokenFile(token) { return `${dirs.tokens}/${createHash("sha256").update(token).digest("hex")}`; }
 
-  async function start(slug) {
+  let closing = false; // set once the factory shuts down: no new runs (re-check finding 1)
+  const starting = new Set(); // starts in flight; shutdown waits for them before it stops the runs
+
+  function start(slug) {
+    if (closing) return Promise.reject(Object.assign(new Error("the factory is shutting down"), { status: 503 }));
+    const p = launch(slug);
+    starting.add(p);
+    const done = () => starting.delete(p);
+    p.then(done, done);
+    return p;
+  }
+
+  async function launch(slug) {
     const r = await lock(slug, () => prepare(slug));
     try {
+      if (closing) throw new Error("the factory is shutting down");
       const c = await docker.create(`levuvo-sf-${r.id}`, runContainerSpec({ runId: r.id, project: composeProject, env: r.env }));
       r.state.containerId = c.Id;
       await docker.start(c.Id);
     } catch (e) {
       log({ action: "run_start_failed", run: r.id, error: e.message });
-      await finish(r.id, "start_failed", e.message);
+      await finish(r.id, closing ? "factory_stopped" : "start_failed", e.message);
       throw Object.assign(new Error(`the run could not start: ${e.message}`), { status: 500 });
     }
     const { id, state } = r;
@@ -260,7 +273,7 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
       rec.output_secret_scan = outputScan;
       writeJson(runPath(id), rec);
       endInInterview(iv, id, rec.ended_at, reason);
-      if (outputScan.status !== "clean") iv.output_secret_scan = { run_id: id, ...outputScan };
+      iv.output_secret_scan = { run_id: id, ...outputScan }; // always the latest run's result; each run record keeps its own
       interview.save(st.slug, iv);
       log({ action: "run_ended", run: id, reason, tool_calls: rec.tool_calls, usage: rec.usage, output_secret_scan: outputScan.status });
     });
@@ -294,6 +307,8 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
 
   /** Factory shutdown (docker compose stop): stops every active run and finalizes it before the process exits (finding 2). */
   async function shutdown() {
+    closing = true;
+    await Promise.allSettled([...starting]); // every container that is being created is started and tracked first
     const ids = [...active.keys()];
     await Promise.all(ids.map(async (id) => { await stop(id, "factory_stopped"); await finish(id); }));
     return ids;

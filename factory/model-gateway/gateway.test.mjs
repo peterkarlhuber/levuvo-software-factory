@@ -148,6 +148,23 @@ test("an upstream error response is passed on and recorded as billed nothing", a
   gw.close(); f.srv.close();
 });
 
+test("a failure after the request was sent counts as unknown usage; an unreachable API as nothing billed (re-check finding 2)", async () => {
+  const f = await fakeUpstream((req) => { req.socket.destroy(); }); // takes the request, then drops the connection
+  const s = setup();
+  const gw = createGateway({ tokenDir: s.tokens, usageDir: s.usage, keyFile: s.keyFile, target: f.target });
+  assert.equal((await call(gw, { headers: { "x-api-key": TOKEN } })).status, 502);
+  const sent = JSON.parse(readFileSync(join(s.usage, "run-1.jsonl"), "utf8"));
+  assert.equal(sent.complete, false);
+  assert.equal(sent.error, undefined, "not counted as a free error");
+  gw.close(); f.srv.close();
+  const s2 = setup();
+  const gw2 = createGateway({ tokenDir: s2.tokens, usageDir: s2.usage, keyFile: s2.keyFile, target: { protocol: "http:", host: "127.0.0.1", port: 1 } });
+  assert.equal((await call(gw2, { headers: { "x-api-key": TOKEN } })).status, 502);
+  const never = JSON.parse(readFileSync(join(s2.usage, "run-1.jsonl"), "utf8"));
+  assert.deepEqual([never.error, never.complete], ["upstream_unreachable", true]);
+  gw2.close();
+});
+
 test("set-key: checks the shape and stores the key privately", () => {
   const dir = mkdtempSync(join(tmpdir(), "key-"));
   const file = join(dir, "k", "api-key");

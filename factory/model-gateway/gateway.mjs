@@ -184,10 +184,16 @@ export function createGateway({ tokenDir = TOKEN_DIR, usageDir = USAGE_DIR, keyF
         ur.on("error", () => { if (!counting) record(runId, { status, ...meter.end(), complete: false }); res.destroy(); });
       });
       up.on("timeout", () => up.destroy(new Error("timeout")));
-      up.on("error", (e) => { log({ action: "upstream_error", run: runId, error: e.code ?? e.message }); if (!counting) record(runId, { error: "upstream_unreachable", complete: true }); fail(res, 502, "api_error", "model API not reachable"); });
+      let sent = false; // the request reached the API's connection: from then on a failure may still be billed
+      up.on("error", (e) => {
+        log({ action: "upstream_error", run: runId, error: e.code ?? e.message, sent });
+        // never connected: nothing billed; failed after sending: unknown usage, never zero (G12.1, re-check finding 2)
+        if (!counting) record(runId, sent ? { transport_error: e.code ?? "error", complete: false } : { error: "upstream_unreachable", complete: true });
+        fail(res, 502, "api_error", "model API not reachable");
+      });
       // a client that goes away mid-stream: the response is incomplete and recorded that way by `ur` errors / end
       res.on("close", () => { if (!res.writableEnded) up.destroy(); });
-      up.end(body);
+      up.end(body, () => { sent = true; });
     });
   });
 }
