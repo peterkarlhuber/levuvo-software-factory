@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:interview-log:0.1",
+  "title": "Levuvo SF interview log (A2, GA2.2, GA2.3)",
+  "description": "Written by the factory from ask_human calls. One log per attended session type (A2, A4); runs of a resumed session append.",
+  "type": "object",
+  "required": ["step", "inventory_version_read", "status", "entries"],
+  "properties": {
+    "step": { "enum": ["A2", "A4"] },
+    "inventory_version_read": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["running", "paused", "finished", "outdated"], "description": "outdated = briefing inventory changed after reading (GA2.3)." },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "started_at"],
+        "properties": {
+          "run_id": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "ended_at": { "type": "string", "format": "date-time" },
+          "end_reason": { "enum": ["finished", "paused", "failed"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question"],
+        "properties": {
+          "question": { "$ref": "urn:levuvo:sf:schema:question-answer:0.1#/$defs/question" },
+          "answer": { "$ref": "urn:levuvo:sf:schema:question-answer:0.1#/$defs/answer" },
+          "affected_sections": {
+            "type": "array",
+            "description": "PRD sections (A2) or design topics (A4) updated from this answer.",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

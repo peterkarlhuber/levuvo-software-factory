@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:dependencies:0.1",
+  "title": "Levuvo SF own dependencies (A4, GA4.5-GA4.7)",
+  "description": "docs/DEPENDENCIES.json. Only own dependencies (other factory projects, mirrored GitHub repos); third-party packages stay in the stack's normal manifest. Packages are identified by Package URL (purl) with an exact version.",
+  "type": "object",
+  "required": [
+    "dependencies"
+  ],
+  "properties": {
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "purl",
+          "repository",
+          "purpose",
+          "integration"
+        ],
+        "properties": {
+          "purl": {
+            "type": "string",
+            "pattern": "^pkg:[a-z][a-z0-9.+-]*/[^@]+@[^@\\s^~<>=*|,]+$",
+            "description": "Package URL (ECMA-427) with an exact version, e.g. pkg:npm/%40levuvo/ui@1.2.0. The factory parses it with a standards-compliant purl parser and checks the version against SemVer 2.0.0 without ranges (GA4.5)."
+          },
+          "repository": {
+            "type": "string",
+            "description": "Source repo on the local git server (mirror for GitHub repos)."
+          },
+          "source_project": {
+            "type": "string",
+            "description": "Factory project id, if the dependency is another factory project."
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "integration": {
+            "enum": [
+              "package-registry"
+            ],
+            "description": "Currently the only supported path: SemVer package from the Forgejo registry via the normal package manager. Another path needs a new ADR and a new schema version."
+          },
+          "adr": {
+            "type": "string",
+            "description": "ADR that introduced it, e.g. 0004."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
