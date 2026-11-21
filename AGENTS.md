@@ -1,6 +1,6 @@
 # Levuvo SF Agents
 
-> Concept phase: guards are requirements, not yet implemented.
+> Concept phase: guards are requirements, not yet implemented. Tools and steps marked *Later* are not part of version 1 ([Version 1 scope](WORKFLOW.md#version-1-scope)).
 
 ## Architecture
 One agent base (Claude CLI) with one skill per workflow step. Each step runs as its own run with a fresh context and its own factory-enforced run profile (tools, rights, network). Skills are [Instructed]; run profiles are [Enforced] (R7). A separate agent identity is used only where independence is mandatory (reviewer, R3). Unattended runs (A5, B2, B3, C3) never wait in a chat; they stop with a question and resume with the answer (R2).
@@ -22,7 +22,7 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 ## A4 Design
 - **Skill:** [skills/design/SKILL.md](skills/design/SKILL.md). Role: software architect. Reads approved PRD + FEATURES, then proposes stack, architecture, data model, design system, own dependencies one by one, each with recommendation and rationale. Stack only from supported stack profiles. Asks the human only where the product is affected. After A4 also runs in *revision* mode (A6) for architecture, ADRs, design system or own dependencies.
 - **Visual input:** reads all briefing files tagged `design-reference` (screenshots, images, patterns) and derives tokens/layout from them; may ask for more references, which the human attaches to the answer (G2.5); on resume, references linked to earlier A4 answers count as design references even without a tag.
-- **Tools:** `read_docs` (approved project docs and the factory's stack profiles), `read_briefing`, `ask_human`, `write_architecture` (arc42), `write_adr` (MADR), `write_design_tokens` (DTCG, schema-checked), `add_dependency` (pinned, factory verifies repo+version), `render_preview` (factory renders a mockup from tokens/component descriptions; no free HTML), `finish_design`.
+- **Tools:** `read_docs` (approved project docs and the factory's stack profiles), `read_briefing`, `ask_human`, `write_architecture` (arc42), `write_adr` (MADR), `write_design_tokens` (DTCG, schema-checked), `add_dependency` (pinned, factory verifies repo+version; *Later*), `render_preview` (factory renders a mockup from tokens/component descriptions; no free HTML; *Later*), `finish_design`.
 - **Run profile:** no shell, no git, write only via tools; read stack profiles + Forgejo package registry; no internet.
 - **Output:** always `docs/ARCHITECTURE.md` and `docs/adr/`; where applicable `docs/DESIGN-SYSTEM.md` + tokens, `docs/DEPENDENCIES.json`, preview, otherwise reported as not applicable via `finish_design`. `finish_design` is accepted only when all product-relevant ADRs have a human decision.
 
@@ -68,7 +68,7 @@ B4 (gates), B6 (docs + DoD) and B7 (acceptance) have no agent: the factory runs 
 
 ## C3 Fix
 - **Scenarios (B2 light):** the scenario skill in mode *bug* (one new hidden test that reproduces the report through the violated AC, must be red on `main`, GC3.4) or *change* (tests only for added and modified criteria). Same tools and run profile as B2; the agent never reads existing hidden tests, the factory assembles the complete set.
-- **Build:** the build skill in *bug* mode (regression test red first, smallest fix, `add_lesson`) or *change* mode (test-first for the changed criteria). Tools as B3 plus `add_lesson` and `await_dependency` (library cause); impact = the report's affected paths (GC3.3); branch `fix/<ID>`. No planner run, except *re-plan* mode for an impact extension (GB3.2). A library version update is a factory commit before the build (GA4.7), never a builder change.
+- **Build:** the build skill in *bug* mode (regression test red first, smallest fix, `add_lesson`) or *change* mode (test-first for the changed criteria). Tools as B3 plus `add_lesson` and `await_dependency` (*Later*) (library cause); impact = the report's affected paths (GC3.3); branch `fix/<ID>`. No planner run, except *re-plan* mode for an impact extension (GB3.2). A library version update is a factory commit before the build (GA4.7), never a builder change.
 - **Then** B4–B7 unchanged; the reviewer gets the report in place of the plan plus the new lesson.
 
 ## Lessons learned (all runs that build or judge code)
