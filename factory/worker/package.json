@@ -1,0 +1,9 @@
+{
+  "name": "levuvo-sf-worker",
+  "private": true,
+  "description": "Levuvo SF worker image: the official Claude CLI at a pinned version",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.330"
+  }
+}

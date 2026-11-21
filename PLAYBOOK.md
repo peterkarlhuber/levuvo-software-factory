@@ -1,6 +1,6 @@
 # Levuvo SF Playbook
 
-Status: draft v0.6.3 · 2026-11-21
+Status: draft v0.6.4 · 2026-11-21
 
 The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run follows. It applies to all projects and all workflow steps (see [WORKFLOW.md](WORKFLOW.md)).
 
@@ -101,7 +101,7 @@ Every run executes in its own hardened container that is destroyed afterwards. I
 - G7.1 [Enforced] No root, all Linux capabilities dropped, no Docker socket, memory/CPU/process limits.
 - G7.2 [Enforced] Network only through the factory's egress proxy with an allowlist.
 - G7.3 [Enforced] Per-phase rights from the run profile: builders commit only in their own checkout and the factory alone pushes to the feature or fix branch (builders get no Git push, approval or merge credentials); spec agent, planner and reviewer have read-only repo access; hidden scenarios are written only by the scenario agent into the factory store and mounted only for the reviewer and the factory's gate runs.
-- G7.4 [Enforced] Short-lived tokens per run, created and revoked by the factory. Model access has two billing modes, a global setting (M3, default *API*; a switch applies from the next run): *API* – the model API key never enters a container: the egress proxy adds it to model API calls and records token usage (G12.1). *Subscription* – the human's own Claude plan through the official, unmodified Claude CLI: the human signs in once through Anthropic's own flow (`claude setup-token`) and the factory mounts that token read-only into the run container for the CLI only; no API key is set in that run, and neither the proxy nor any other factory part reads, forwards or injects the token (Anthropic does not permit intermediating plan credentials). This is a deliberate, human-approved exception to keeping credentials out of containers: the egress allowlist (G7.2) still applies and the token can only make model requests. In subscription mode the proxy adds no API key, and the token is long-lived (created by the human, not per run), so it is exempt from per-run creation and revocation; the human can renew or revoke it in the factory settings. When the plan's usage limit is reached, the run pauses with a failure report (R13) instead of failing silently.
+- G7.4 [Enforced] Short-lived tokens per run, created and revoked by the factory. Model access has two billing modes, a global setting (M3, default *API*; a switch applies from the next run): *API* – the model API key never enters an agent container; only the factory's model gateway holds it: it adds the key to model API calls and records token usage (G12.1). *Subscription* – the human's own Claude plan through the official, unmodified Claude CLI: the human signs in once through Anthropic's own flow (`claude setup-token`) and the factory mounts that token read-only into the run container for the CLI only; no API key is set in that run, and neither the proxy nor any other factory part reads, forwards or injects the token (Anthropic does not permit intermediating plan credentials). This is a deliberate, human-approved exception to keeping credentials out of containers: the egress allowlist (G7.2) still applies and the token can only make model requests. In subscription mode the proxy adds no API key, and the token is long-lived (created by the human, not per run), so it is exempt from per-run creation and revocation; the human can renew or revoke it in the factory settings. When the plan's usage limit is reached, the run pauses with a failure report (R13) instead of failing silently.
 - G7.5 [Instructed] Access to an allowed destination is not permission to send arbitrary data. [Verified] Secrets scanning on outputs and logs (detection cannot be complete).
 
 ### R8 – Guard integrity
@@ -159,6 +159,8 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 | Conventional Commits | 1.0.0 | Commit messages, changelog and version proposal | A5, B3, B6, C3 |
 | Keep a Changelog | 1.1.0 | `CHANGELOG.md` | B6, B7 |
 | Compose Specification | compose-spec.io, as implemented by Docker Compose v2 | Definition of the factory's own container stack (`factory/compose.yaml`) | factory |
+| Model Context Protocol | 2025-06-18 (stdio transport) | The factory's tools for agent runs | A2 (later all agent steps) |
+| gitleaks | 8.30.1 (default rules) | Secret scan of briefing text files before agent access (GA1.4) | A1 |
 | OpenTelemetry GenAI semantic conventions | schema version pinned at implementation | Run and cost records | R11, R12 |
 
 ### R11 – Visible progress and full trace
@@ -188,6 +190,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
+- 0.6.4 (2026-11-21): Implementation block 2 (first agent run): G7.4 names the model gateway as the only holder of the API key; Model Context Protocol and gitleaks added to the standards table.
 - 0.6.3 (2026-11-21): Implementation block 1 (factory base): Compose Specification added to the standards table.
 - 0.6.2 (2026-11-21): Workflow part D: backlog added to the template list; MoSCoW marked preliminary, the backlog sets the work order. Model and reasoning effort per agent role as settings (default Opus 5.5, effort medium), effort logged per run (G11.2).
 - 0.6.1 (2026-11-21): Billing modes *API* (default) and *subscription*, switchable by a setting; subscription only through the official CLI with the human's `setup-token`, an approved exception to keeping credentials out of containers (G7.4); estimated cost in subscription mode (G12.1); billing mode logged per run (G11.2). V1 marks: pointer to the version 1 scope (WORKFLOW.md); prompt-injection detection instructed only (R9); cost warning and brake default to no limit (G12.2).

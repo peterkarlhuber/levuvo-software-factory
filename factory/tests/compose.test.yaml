@@ -1,0 +1,25 @@
+# Test-only additions for factory/tests/run.sh (project levuvo-sf-test). Never used by the real factory.
+# - the model gateway is built from its `testable` target, the only image in which LEVUVO_SF_TEST_UPSTREAM works,
+#   and points at the scripted fake model API instead of api.anthropic.com
+# - fake-model sits on the gateway's outside network only; agent runs cannot reach it directly
+services:
+  model-gateway:
+    image: levuvo-sf/model-gateway:testable
+    build: { context: ./model-gateway, target: testable }
+    environment:
+      LEVUVO_SF_TEST_UPSTREAM: http://fake-model:9000
+    depends_on:
+      fake-model: { condition: service_started }
+
+  fake-model:
+    image: levuvo-sf/egress-proxy:local
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: node
+    entrypoint: ["node", "/opt/fake/fake.mjs"]
+    environment:
+      FAKE_EXPECT_KEY: sk-ant-test-e2e-0123456789abcdefghijklmnop
+    volumes:
+      - ./tests/fake-model:/opt/fake:ro
+    networks: [internet]
