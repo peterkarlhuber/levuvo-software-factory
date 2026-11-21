@@ -8,10 +8,11 @@ import { createInterface } from "node:readline/promises";
 
 const PORT = Number(process.env.LEVUVO_SF_API_PORT ?? 3100);
 
-export function api(method, path, body) {
+export function api(method, path, body, { port = 3100 } = {}) {
   return new Promise((resolve, reject) => {
-    const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
-    const req = request({ host: "127.0.0.1", port: 3100, method, path, headers: { host: `localhost:${PORT}`, ...(data ? { "content-type": "application/json", "content-length": data.length } : {}) } }, (res) => {
+    // every changing request is JSON, even without a body (the API refuses anything else; bug seen in the first demo)
+    const data = method === "GET" ? undefined : Buffer.from(JSON.stringify(body ?? {}));
+    const req = request({ host: "127.0.0.1", port, method, path, headers: { host: `localhost:${PORT}`, ...(data ? { "content-type": "application/json", "content-length": data.length } : {}) } }, (res) => {
       let b = "";
       res.on("data", (c) => (b += c)).on("end", () => {
         const isJson = /json/.test(res.headers["content-type"] ?? "");
