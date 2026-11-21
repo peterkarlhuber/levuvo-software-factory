@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Written by the factory only (B6 generates the entry, B7 writes it on merge). Entries come from Conventional Commits:
      feat → Added, fix → Fixed, perf/refactor with visible effect → Changed, removals → Removed, security fixes → Security.
-     A BREAKING CHANGE footer or "!" is listed first and is an input to the version proposal; the final version follows SemVer compatibility and is confirmed by the human (B6, B7). Each entry names its feature ID. -->
+     A BREAKING CHANGE footer or "!" is listed first and is an input to the version proposal; the final version follows SemVer compatibility and is confirmed by the human (B6, B7). Each entry names its feature ID, or for part C its report ID (BUG-NNN). -->
 
 ## [Unreleased]
 

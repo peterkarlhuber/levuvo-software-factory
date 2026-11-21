@@ -1,6 +1,6 @@
 # Levuvo SF Playbook
 
-Status: draft v0.4.0 · 2026-11-21
+Status: draft v0.5.0 · 2026-11-21
 
 The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run follows. It applies to all projects and all workflow steps (see [WORKFLOW.md](WORKFLOW.md)).
 
@@ -124,17 +124,18 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 
 - G10.1 [Enforced] Schema-bound output that doesn't match is rejected; the agent must fix it.
 - G10.2 [Enforced] Templates and schemas live versioned in the factory repo (`templates/`), not in prompts.
-- Templates (see `templates/README.md`): briefing, briefing inventory, interview log, question / answer / change request / escalation / failure report, PRD, feature list, architecture, ADR, design system + tokens, dependencies manifest, DoR, DoD, spec (+ interface contract for APIs), plan, hidden-scenario manifest, build report, gate report, review report, acceptance package, changelog, run record, cost summary, run profile.
+- Templates (see `templates/README.md`): briefing, briefing inventory, interview log, question / answer / change request / escalation / failure report, PRD, feature list, architecture, ADR, design system + tokens, dependencies manifest, DoR, DoD, spec (+ interface contract for APIs), plan, hidden-scenario manifest, build report, gate report, review report, acceptance package, changelog, bug report, lessons learned, run record, cost summary, run profile.
 
 **Standards**
 
 | Standard | Version / reference | Purpose | Steps |
 |---|---|---|---|
 | JSON Schema | 2020-12 | Structure of all machine-readable artifacts | all |
-| Agent Skills format | agentskills.io specification (unversioned) | One skill per agent step | A2, A4, A5, B1–B3, B5 |
+| Agent Skills format | agentskills.io specification (unversioned) | One skill per agent step | A2, A4, A5, B1–B3, B5, C1–C3 |
 | BCP 47 language tags | RFC 5646 | Language of questions and human-facing text | all |
 | IANA media types | IANA registry | File types in the briefing inventory and attachments | A1, all |
 | SHA-256 | FIPS 180-4 | Content hashes of files and approved versions | A1, A3, B1 |
+| IEEE 1044 | 2009 | Attributes of bug reports (anomaly classification) | C1, C2 |
 | ISO/IEC/IEEE 29148 | 2018 | Requirement quality principles (necessary, unambiguous, verifiable) | A3, B1 |
 | MoSCoW | DSDM method (unversioned) | Feature priorities | A3 |
 | arc42 | template 8.2 (lite) | Architecture documentation | A4, B3 |
@@ -144,14 +145,14 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 | DTCG Format Module | 2025.10 | Design tokens | A4, A5 |
 | WCAG | 2.2, level AA | Accessibility of UI projects | A4, B4, B5 |
 | Package URL (purl) | ECMA-427, 1st edition | Identifying own dependencies | A4 |
-| Semantic Versioning | 2.0.0 | Versions of releases and dependencies | A4, B6, B7 |
+| Semantic Versioning | 2.0.0 | Versions of releases and dependencies | A4, B6, B7, C3 |
 | Dev Container specification | containers.dev (unversioned) | Development environment | A5 |
 | EARS | Mavin et al. 2009 | Requirement sentences in specs | B1 |
 | Gherkin | Cucumber reference, pinned by the stack profile's parser | Acceptance criteria and scenarios where useful | B1, B2 |
 | OpenAPI | 3.1.1 | Interface contract of API features | B1, B2, B7 |
 | JUnit XML | de-facto format, as read by the factory's gate runner | Test results | A5, B4 |
 | SARIF | 2.1.0 | Findings of scanners and the review | A5, B4, B5 |
-| Conventional Commits | 1.0.0 | Commit messages, changelog and version proposal | A5, B3, B6 |
+| Conventional Commits | 1.0.0 | Commit messages, changelog and version proposal | A5, B3, B6, C3 |
 | Keep a Changelog | 1.1.0 | `CHANGELOG.md` | B6, B7 |
 | OpenTelemetry GenAI semantic conventions | schema version pinned at implementation | Run and cost records | R11, R12 |
 
@@ -181,6 +182,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
+- 0.5.0 (2026-11-21): Workflow part C: IEEE 1044 added to the standards table (bug report fields); bug report and lessons learned added to the template list; standards steps extended to C.
 - 0.4.0 (2026-11-21): Central standards table with pinned versions at R10; template list extended for workflow part B; language rule covers summaries for the human; review findings use SARIF levels instead of Conventional Comments; G7.3 names planner and scenario agent.
 - 0.3.3 (2026-11-21): Answers may carry attachments (R2, G2.3, G2.5).
 - 0.3.2 (2026-11-20): Pre-commit review: concept-phase disclaimer; G2.2 split for attended/unattended; continuous R13 numbering; standards named precisely; language rule.

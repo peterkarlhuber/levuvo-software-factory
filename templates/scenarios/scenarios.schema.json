@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:scenarios:0.1",
+  "$id": "urn:levuvo:sf:schema:scenarios:0.2",
   "title": "Levuvo SF hidden-scenario manifest (B2, GB2.1-GB2.5)",
   "description": "Maps hidden acceptance tests to acceptance criteria. Stored with the tests in the factory, outside the project repo; never readable by the builder (GB2.3). The factory additionally checks that every AC of the spec version has at least one test (GB2.1), that every referenced AC exists in that version (GB2.2), and records the baseline run on main per test (GB2.4).",
   "type": "object",
@@ -20,6 +20,7 @@
         "properties": {
           "id": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$" },
           "acceptance_criterion": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$", "description": "Exactly one AC per test (GB2.2)." },
+          "bug": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: the test reproduces this reported bug through the AC it violates; its baseline on main must be failed_assertion (GC3.4)." },
           "file": { "type": "string", "minLength": 1, "description": "Path inside the factory's scenario store.", "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } },
           "title": { "type": "string", "minLength": 1, "description": "Test name; must contain the AC ID so JUnit results map to it." }
         },
