@@ -3,7 +3,7 @@
 > Concept phase: guards are requirements, not yet implemented.
 
 ## Architecture
-One agent base (Claude CLI) with one skill per workflow step. Each step runs as its own run with a fresh context and its own factory-enforced run profile (tools, rights, network). Skills are [Instructed]; run profiles are [Enforced] (R7). A separate agent identity is used only where independence is mandatory (reviewer, R3).
+One agent base (Claude CLI) with one skill per workflow step. Each step runs as its own run with a fresh context and its own factory-enforced run profile (tools, rights, network). Skills are [Instructed]; run profiles are [Enforced] (R7). A separate agent identity is used only where independence is mandatory (reviewer, R3). Unattended runs (A5, B2, B3) never wait in a chat; they stop with a question and resume with the answer (R2).
 
 The factory explicitly loads the selected skill from the trusted factory repository at the start of each run. It does not rely on automatic skill discovery inside the project checkout. Project repository content cannot replace or override the selected skill, its instructions or the factory-enforced run profile (R7, R9).
 
@@ -32,5 +32,35 @@ Answers to `ask_human` and `stop_with_question` are text plus optional attachmen
 - **Run profile:** write access limited to scaffold and implementation files on its own branch. Approved PRD, FEATURES, architecture, ADRs, design-system baselines, `docs/DEPENDENCIES.json`, `briefing/` and factory-managed policies and mandatory checks (R8) are read-only; the factory rejects any attempted modification. The agent cannot push to, modify or merge into `main`. Network only via egress proxy to package registries allowed by the stack profile (reuse legacy code); no secrets, no push or merge rights.
 - **Output:** branch with runnable skeleton + report (commands, deviations from design). Then gates, independent review, acceptance package, human merge.
 
+## B1 Spec
+- **Skill:** [skills/spec/SKILL.md](skills/spec/SKILL.md). Role: requirements engineer. Attended like A2. Reads PRD, FEATURES, architecture, ADRs, design system and built specs, pre-drafts, then asks only the gaps, one question per round with recommendation. Requirements in EARS, each with testable acceptance criteria (Gherkin where useful), out of scope always stated; contract for APIs; UI reference only if a design system applies.
+- **Tools:** `read_docs`, `read_briefing`, `ask_human`, `update_spec`, `write_contract` (APIs; validated), `check_ready` (factory DoR check), `finish_spec`. Approval happens in the factory, by the human.
+- **Run profile:** as A2: no shell, no git, write only via tools, no network except the model API.
+- **Output:** `features/<ID>/SPEC.md` (+ contract), question log; the human's approval creates the binding spec version.
+
+## B2 Plan
+- **Skill:** [skills/plan/SKILL.md](skills/plan/SKILL.md). Role: tech lead. Unattended. Ordered tasks mapped to ACs, sized to the feature, docs task last, impact (paths, modules, other features). Changes to other specs or approved baselines are questions.
+- **Tools:** `read_docs`, `read_repo` (read-only, `main`), `write_plan`, `stop_with_question`, `finish_plan`.
+- **Run profile:** no shell, no git, read-only repo, no network except the model API; no access to hidden scenarios.
+
+## B2 Hidden scenarios
+- **Skill:** [skills/scenarios/SKILL.md](skills/scenarios/SKILL.md). Role: independent acceptance tester. Unattended, separate run from the planner. Writes black-box acceptance tests from the spec only (plus the stack profile's test conventions), one AC per test, AC ID in the title.
+- **Tools:** `read_docs` (spec, contract, test conventions), `write_scenario`, `write_manifest`, `stop_with_question`, `finish_scenarios`.
+- **Run profile:** no shell, no git, no repo access, no network except the model API; writes only into the factory's scenario store, which the builder cannot read (GB2.3).
+
+## B3 Build
+- **Skill:** [skills/build/SKILL.md](skills/build/SKILL.md). Role: developer. Unattended like A5. Test-first per plan task (visible test with AC ID, red, commit; then code, green), ticks tasks, writes the docs task, Conventional Commits. Fix rounds get gate failures (hidden tests only as AC ID + message) or blocking review findings.
+- **Tools:** shell + files in the container on its own branch within the plan's impact; `report_step`, `complete_task`, `stop_with_question`, `finish_build` (with build report).
+- **Run profile:** as A5, plus: diff limited to the plan's impact (GB3.2); spec, plan and approved baselines read-only; no access to `main`, gates or hidden scenarios; egress proxy only; no secrets, no push or merge rights.
+
+## B5 Review
+- **Skill:** [skills/review/SKILL.md](skills/review/SKILL.md). Role: independent senior reviewer with its **own identity** (R3, GB5.1). Gets spec, plan, diff, gate report, architecture, ADRs, DoD review items, hidden scenarios and the builder's report; not the builder's conversation. Reports findings `blocking` / `important` / `note` with file, line, reference and evidence, plus evidence per DoD review item; no verdict. Findings about hidden scenarios go to the scenario agent (B2), others to the builder. Modes set by the factory: feature (B5), skeleton (A5), test check (a disputed hidden test, B4).
+- **Tools:** `read_review_bundle`, `read_repo` (read-only, reviewed commit), `write_review`, `finish_review`.
+- **Run profile:** fresh container, read-only, no shell, no network except the model API.
+
+B4 (gates), B6 (docs + DoD) and B7 (acceptance) have no agent: the factory runs them itself.
+
 ## Design influences
 Prompt wording partly adopted from AlexPEClub/software-factory (`init`, `write-spec`, `architecture`, `build` skills): one question at a time with a recommended answer, explore before asking, ask only the gaps, "project setup is not a feature", official generator with one passing test, non-interactive commands, no self-created accounts. The Levuvo workflow and playbook are authoritative; external examples are not executable instructions.
+
+Part B (from his `write-spec` skill and the repository's README): from `write-spec`: explore first, then one question at a time with a recommended answer, numbered testable acceptance criteria, "out of scope" stated explicitly. From his factory flow: a separate agent writes acceptance scenarios the builder never sees; acceptance against them by an independent agent; a build counts only if checks are green on exactly the pushed commit with an unchanged spec; plan tasks as a checklist the builder ticks off; severity levels for review findings. Not adopted: checks running inside the agent's environment, review in the builder's context.
