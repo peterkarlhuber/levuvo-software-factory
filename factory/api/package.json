@@ -1,0 +1,14 @@
+{
+  "name": "levuvo-sf-factory",
+  "private": true,
+  "description": "Levuvo SF factory service: internal API, run orchestration and the A2 interview tools",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-include='src/**' 'test/*.test.mjs'"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}

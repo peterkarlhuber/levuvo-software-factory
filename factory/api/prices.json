@@ -1,0 +1,13 @@
+{
+  "version": "2026-11-21",
+  "currency": "USD",
+  "unit": "per million tokens",
+  "source": "Anthropic first-party API list prices as published on 2026-11-21; cache write = 5-minute cache (1.25 x input)",
+  "note": "Used only for the factory's cost ESTIMATE (PLAYBOOK G12.1). Update this file (reviewed PR) when prices change.",
+  "models": {
+    "claude-opus-5-5": { "input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2 },
+    "claude-sonnet-5-5": { "input": 2.0, "output": 10.0, "cache_write": 2.5, "cache_read": 0.1 },
+    "claude-haiku-5-5": { "input": 0.1, "output": 0.5, "cache_write": 0.125, "cache_read": 0.01 },
+    "claude-fable-5-2": { "input": 8.0, "output": 40.0, "cache_write": 10.0, "cache_read": 0.2 }
+  }
+}

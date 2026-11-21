@@ -1,11 +1,15 @@
-# Levuvo SF – base stack (implementation block 1): local Forgejo and the egress proxies.
+# Levuvo SF – the factory stack: local Forgejo and egress proxies (block 1); factory service, model gateway, Docker
+# access and the worker image for isolated agent runs (block 2).
 # Start (from this folder): docker compose up -d --build      Guide: README.md
 #
 # Security model (PLAYBOOK G7.1, G7.2):
 # - every container runs as a non-root user, with all Linux capabilities dropped, no-new-privileges, a read-only
 #   root filesystem and memory/CPU/process limits; data only in named volumes, temporary files in tmpfs
-# - agent containers (block 2 on) are put on one of the internal agent networks; their only way out is the egress
-#   proxy of that network, which lets HTTPS through to the hosts of its profile only
+# - agent run containers are put on one internal agent network: in API billing mode `agents-api`, where only the model
+#   gateway answers (it adds the API key, which no agent container ever sees); `agents-model` / `agents-build` with
+#   their CONNECT egress proxies stay for subscription mode and builders (later blocks)
+# - only the factory service can reach the Docker API, and only through the restricted docker-socket-proxy; it builds
+#   every run container from one fixed template
 # - the git server is reachable from the Mac on 127.0.0.1 only, and inside Docker only on the internal network
 #   `levuvo-sf_factory`, which agent containers never join
 name: levuvo-sf
@@ -108,20 +112,147 @@ services:
     environment: { EGRESS_PROFILE: build }
     networks: [agents-build, internet]
 
+  # Docker access for the factory only (scope review finding 9): containers endpoints (create, start, stop, wait, logs,
+  # remove, list); exec start, images, networks, volumes, build and everything else are refused. Defense in depth: the
+  # factory itself builds run containers only from its fixed template. HAProxy renders its config at start, so this
+  # one container keeps a writable root filesystem; it runs on its own internal network, which only the factory joins.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1@sha256:3400c429c5f9e1b21d62130fb93b16e2e772d4fb7695bd52fc2b743800b9fe9e
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+    environment:
+      CONTAINERS: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 0
+      EXEC: 0
+      IMAGES: 0
+      NETWORKS: 0
+      VOLUMES: 0
+      INFO: 0
+      DISABLE_IPV6: 1
+    volumes:
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks: [docker]
+
+  # Model gateway (API billing mode, PLAYBOOK G7.4, G12.1): the only way out of `agents-api`; checks the run token,
+  # adds the API key, forwards to api.anthropic.com only and records token usage per run. The only container with the key.
+  model-gateway:
+    <<: *hardened
+    image: levuvo-sf/model-gateway:local
+    build: ./model-gateway
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 64
+    volumes:
+      - model-key:/run/levuvo/key:ro
+      - run-tokens:/run/levuvo/tokens:ro
+      - run-usage:/var/lib/levuvo/usage
+    networks: [agents-api, internet]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(8080,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Stores the Anthropic API key (hidden input): docker compose run --rm set-api-key
+  set-api-key:
+    <<: *hardened
+    image: levuvo-sf/model-gateway:local
+    build: ./model-gateway
+    profiles: [tools]
+    restart: "no"
+    entrypoint: ["node", "/opt/levuvo/gateway.mjs", "set-key"]
+    stdin_open: true
+    tty: true
+    network_mode: none
+    volumes:
+      - model-key:/run/levuvo/key
+
+  # Builds the worker image (official Claude CLI + the factory's run launcher) on every `up --build`; exits at once.
+  worker-image:
+    <<: *hardened
+    image: levuvo-sf/worker:local
+    build: ./worker
+    restart: "no"
+    entrypoint: ["node", "-e", "0"]
+    network_mode: none
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 16
+
+  # The factory service: internal API on http://localhost:3100 (Mac only), run orchestration, A2 interview tools.
+  factory:
+    <<: *hardened
+    image: levuvo-sf/factory:local
+    build:
+      context: ..
+      dockerfile: factory/api/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s # on stop the factory ends active runs cleanly first (container, token, run record)
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    environment:
+      LEVUVO_SF_API_PORT: ${LEVUVO_SF_API_PORT:-3100}
+      LEVUVO_SF_GIT_PORT: ${LEVUVO_SF_GIT_PORT:-3000}
+    ports:
+      - "127.0.0.1:${LEVUVO_SF_API_PORT:-3100}:3100"
+    volumes:
+      - factory-data:/var/lib/levuvo/data
+      - runs:/var/lib/levuvo/runs
+      - run-tokens:/run/levuvo/tokens
+      - run-usage:/var/lib/levuvo/usage:ro
+      - type: volume
+        source: git-data
+        target: /run/levuvo/git
+        read_only: true
+        volume: { subpath: levuvo-factory }
+    tmpfs: [/tmp]
+    networks: [web, factory, docker]
+    depends_on:
+      git-init: { condition: service_completed_successfully }
+      worker-image: { condition: service_completed_successfully }
+      docker-proxy: { condition: service_started }
+      model-gateway: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3100,path:'/api/health',headers:{host:'localhost:'+process.env.LEVUVO_SF_API_PORT}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 # Volume and network names get the project name as prefix (e.g. `levuvo-sf_agents-model`), so the test project
 # `levuvo-sf-test` never shares data or networks with the real factory.
 volumes:
   git-data: {}
+  factory-data: {}   # projects, briefings, drafts, question logs, run records, settings (factory only)
+  runs: {}           # per-run folders; a run container mounts only its own `in` (read-only) and `io`
+  run-tokens: {}     # live run tokens (factory writes, gateway reads)
+  run-usage: {}      # token usage per run (gateway writes, factory reads)
+  model-key: {}      # the Anthropic API key (set-api-key writes, gateway reads; nothing else mounts it)
 
 networks:
   # host port of the git server (a published port needs a non-internal network)
   web: {}
-  # trusted factory services only (the factory API joins in block 2); never an agent container
+  # trusted factory services only (git, git-init, factory); never an agent container
   factory:
     internal: true
   agents-model:
     internal: true
   agents-build:
+    internal: true
+  # API billing mode runs: nothing here but the model gateway
+  agents-api:
+    internal: true
+  # the factory and the docker-socket-proxy only
+  docker:
     internal: true
   # the proxies' way out
   internet: {}
