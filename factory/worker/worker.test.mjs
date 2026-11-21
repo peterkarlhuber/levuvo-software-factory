@@ -50,6 +50,7 @@ test("CLI arguments with web search on: restricted mode, WebSearch the only buil
   assert.equal(e.CLAUDE_CODE_DISABLE_CLAUDE_MDS, "1");
   assert.equal(e.CLAUDE_CODE_DISABLE_BUNDLED_SKILLS, "1");
   assert.equal(cliEnv({ LEVUVO_SF_WEB_SEARCH: "0" }).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
+  for (const v of ["0", "1"]) assert.equal(cliEnv({ LEVUVO_SF_WEB_SEARCH: v }).CLAUDE_CODE_DISABLE_ATTACHMENTS, "1", "no @ file references in any run");
   const off = cliArgs({ ...env, LEVUVO_SF_WEB_SEARCH: "0" }, ["ask_human"], d);
   assert.ok(off.includes("--bare") && off[off.indexOf("--tools") + 1] === "");
   assert.throws(() => cliArgs({ ...env, LEVUVO_SF_WEB_SEARCH: "yes" }, ["ask_human"], d), /web search/);

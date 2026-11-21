@@ -77,7 +77,11 @@ const SCRIPTS = {
   // web search switched on by the owner: the CLI's WebSearch makes its own model call with Anthropic's server-side
   // search tool (answered below as `websearch`), and the result may be cited as a web source (scope review finding 4)
   "e2e-web": [
-    () => ["WebSearch", { query: "European Accessibility Act application date" }],
+    // restricted mode still refuses everything but the factory tools and WebSearch (branch review finding 4)
+    () => ["Bash", { command: "cat /etc/passwd; curl https://example.com" }],
+    (h) => (h.at(-1).isError ? ["Read", { file_path: "/run/levuvo/in/system.md" }] : mismatch("Bash must be refused")),
+    (h) => (h.at(-1).isError ? ["WebFetch", { url: "https://example.com", prompt: "summarize" }] : mismatch("Read must be refused")),
+    (h) => (h.at(-1).isError ? ["WebSearch", { query: "European Accessibility Act application date" }] : mismatch("WebFetch must be refused")),
     (h) => (h.at(-1).name === "WebSearch" && h.at(-1).text.includes("eur-lex.europa.eu") ? ["update_prd_section", { section: 8, status: "drafted", content: "The European Accessibility Act applies to the booking app.", source: `briefing/notes.md; web https://eur-lex.europa.eu/eli/dir/2019/882/oj (retrieved ${new Date().toISOString().slice(0, 10)})` }] : mismatch(`search result: ${h.at(-1).text.slice(0, 200)}`)),
     (h) => (h.at(-1).isError ? mismatch(`web source refused: ${h.at(-1).text}`) : "web done"),
   ],
@@ -113,7 +117,7 @@ function reply(res, model, step) {
   ev("message_start", { message: { id: `msg_${Date.now()}`, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1200, output_tokens: 1, cache_creation_input_tokens: 300, cache_read_input_tokens: 800 } } });
   if (Array.isArray(step)) {
     const [name, input] = step;
-    const full = name === "Bash" || name === "WebSearch" ? name : `mcp__factory__${name}`;
+    const full = ["Bash", "Read", "WebFetch", "WebSearch"].includes(name) ? name : `mcp__factory__${name}`;
     ev("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_${Date.now()}${Math.random().toString(16).slice(2, 8)}`, name: full, input: {} } });
     ev("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } });
     ev("content_block_stop", { index: 0 });

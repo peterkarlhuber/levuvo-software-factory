@@ -5,7 +5,7 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { allowedPath, checkRequest, clientToken, createGateway, runForToken, storeKey, upstream, upstreamHeaders, UsageMeter } from "./gateway.mjs";
+import { allowedPath, checkRequest, clientToken, REFUSED, createGateway, runForToken, storeKey, upstream, upstreamHeaders, UsageMeter } from "./gateway.mjs";
 
 const TOKEN = "a".repeat(64);
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -107,35 +107,41 @@ test("usage meter: web searches are counted from server_tool_use, never the quer
   assert.equal(j.end().web_search_requests, 1);
 });
 
-test("server-side tools: only web search, only when the run's token allows it (scope review finding 1)", () => {
+test("server-side tools: only the tested web search version, only when the run's token allows it; fail-closed (scope finding 1, branch findings 1, 2, 5)", () => {
   const req = (o) => Buffer.from(JSON.stringify({ model: "m", messages: [], ...o }));
   const client = { name: "mcp__factory__ask_human", input_schema: { type: "object" } };
   const search = { type: "web_search_20250305", name: "web_search", max_uses: 8 };
   assert.equal(checkRequest(req({ tools: [client] }), []), null);
   assert.equal(checkRequest(req({ tools: [{ ...client, type: "custom" }] }), []), null);
   assert.equal(checkRequest(req({}), []), null);
-  assert.equal(checkRequest(req({ tools: [search] }), ["web_search"]), null);
-  assert.equal(checkRequest(req({ tools: [{ ...search, type: "web_search_20260209" }] }), ["web_search"]), null);
-  assert.match(checkRequest(req({ tools: [search] }), []), /web_search_20250305 is not allowed/, "search off");
-  for (const type of ["web_fetch_20250910", "web_fetch_20260209", "code_execution_20250825", "bash_20250124", "text_editor_20250728", "computer_20250124", "memory_20250818", "web_search", "web_search_x"]) {
-    assert.ok(checkRequest(req({ tools: [client, { type, name: "t" }] }), ["web_search"]), type);
+  assert.equal(checkRequest(req({ tools: [client, search] }), ["web_search"]), null);
+  assert.equal(checkRequest(req({ tools: [{ ...search, allowed_callers: ["direct"] }] }), ["web_search"]), null);
+  assert.equal(checkRequest(req({ tools: [search] }), []), REFUSED.server, "search off");
+  for (const type of ["web_search_20260209", "web_search_20991231", "web_fetch_20250910", "web_fetch_20260209", "code_execution_20250825", "bash_20250124", "text_editor_20250728", "computer_20250124", "memory_20250818", "web_search", null, 5, {}, ["web_search_20250305"]]) {
+    assert.equal(checkRequest(req({ tools: [client, { type, name: "t" }] }), ["web_search"]), REFUSED.server, JSON.stringify(type));
   }
-  assert.match(checkRequest(req({ mcp_servers: [{ type: "url", url: "https://example.com" }] }), ["web_search"]), /mcp_servers/);
-  assert.match(checkRequest(req({ container: "c1" }), ["web_search"]), /container/);
-  assert.match(checkRequest(Buffer.from("not json"), ["web_search"]), /not JSON/);
-  assert.match(checkRequest(Buffer.from("[]"), ["web_search"]), /object/);
-  assert.match(checkRequest(req({ tools: {} }), ["web_search"]), /list/);
+  for (const callers of [["code_execution_20250825"], ["direct", "code_execution_20250825"], [], "direct", null]) {
+    assert.equal(checkRequest(req({ tools: [{ ...search, allowed_callers: callers }] }), ["web_search"]), REFUSED.server, JSON.stringify(callers));
+  }
+  for (const bad of [null, "WebSearch", 5, [], { type: "web_search_20250305" }, { name: 5 }]) {
+    assert.equal(checkRequest(req({ tools: [client, bad] }), ["web_search"]), REFUSED.tools, JSON.stringify(bad));
+  }
+  assert.equal(checkRequest(req({ tools: {} }), ["web_search"]), REFUSED.tools);
+  assert.equal(checkRequest(req({ mcp_servers: [{ type: "url", url: "https://example.com" }] }), ["web_search"]), REFUSED.field);
+  assert.equal(checkRequest(req({ container: null }), ["web_search"]), REFUSED.field);
+  for (const b of ["not json", "[]", "null", "5"]) assert.equal(checkRequest(Buffer.from(b), ["web_search"]), REFUSED.json, b);
+  assert.ok(Object.values(REFUSED).every((r) => !/web_search|fetch|20250305/.test(r)), "no request content in a reason");
 });
 
 test("a refused tool never reaches the API and bills nothing; a token cannot grant unknown tools", async () => {
   const f = await fakeUpstream((req, res) => { res.writeHead(200, { "content-type": "text/event-stream" }); res.end(SSE); });
-  const s = setup({ serverTools: ["web_fetch", "code_execution"] });
+  const s = setup({ serverTools: ["web_fetch", "code_execution", "constructor", "__proto__"] });
   assert.deepEqual(runForToken(TOKEN, s.tokens).serverTools, [], "only known names count");
   const gw = createGateway({ tokenDir: s.tokens, usageDir: s.usage, keyFile: s.keyFile, target: f.target });
   const body = JSON.stringify({ model: "m", messages: [], tools: [{ type: "web_fetch_20250910", name: "web_fetch" }] });
   const r = await call(gw, { headers: { "x-api-key": TOKEN }, body });
   assert.equal(r.status, 403);
-  assert.match(JSON.parse(r.body).error.message, /web_fetch_20250910 is not allowed/);
+  assert.equal(JSON.parse(r.body).error.message, `refused by the factory gateway: ${REFUSED.server}`);
   const r2 = await call(gw, { path: "/v1/messages/count_tokens?beta=true", headers: { "x-api-key": TOKEN }, body: JSON.stringify({ tools: [{ type: "web_search_20250305", name: "web_search" }] }) });
   assert.equal(r2.status, 403, "count_tokens is checked too");
   assert.equal(f.seen.length, 0);

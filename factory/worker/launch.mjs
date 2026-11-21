@@ -7,6 +7,7 @@
 //   --restricted --tools WebSearch   `--bare` drops WebSearch in CLI 2.1.330, so these runs use restricted mode: no
 //                                    command or code tools, no WebFetch, no user/project/local settings files; plus
 //                                    CLAUDE_CODE_DISABLE_AUTO_MEMORY / _CLAUDE_MDS / _BUNDLED_SKILLS (what --bare skips).
+//   CLAUDE_CODE_DISABLE_ATTACHMENTS=1  always: no `@` file references; files come only through the factory's tools
 //                                    WebSearch makes a model call with Anthropic's server-side search; the container
 //                                    still reaches only the model gateway, which allows no other server-side tool.
 //   --strict-mcp-config + mcp.json   only the factory's own MCP server (this image's mcp.mjs)
@@ -46,10 +47,12 @@ export function cliArgs(env, tools, dir = IN) {
   ];
 }
 
-/** The CLI's environment: with web search on, also switch off what `--bare` would have skipped. */
+/** The CLI's environment: `@` file references are never resolved (files come only through the factory's tools; branch
+ * review finding 3); with web search on, also switch off what `--bare` would have skipped. */
 export function cliEnv(env) {
-  if (env.LEVUVO_SF_WEB_SEARCH !== "1") return { ...env };
-  return { ...env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: "1" };
+  const out = { ...env, CLAUDE_CODE_DISABLE_ATTACHMENTS: "1" };
+  if (env.LEVUVO_SF_WEB_SEARCH !== "1") return out;
+  return { ...out, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: "1" };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

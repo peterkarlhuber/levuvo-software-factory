@@ -6,7 +6,7 @@
 // with certificate check to the fixed upstream api.anthropic.com, follows no redirects and records the token usage of
 // every model call per run. It is the only container that can read the key.
 // Server-side tools run at Anthropic, not in the container, so network isolation does not limit them: the gateway
-// reads every request and refuses any server-side tool the run's token does not allow (only `web_search_*`, only for a
+// reads every request and refuses any server-side tool the run's token does not allow (only `web_search_20250305`, only for a
 // run whose profile has web search on), and any request that names remote MCP servers or a code container.
 //
 // Files (all paths fixed):
@@ -53,34 +53,41 @@ export function runForToken(token, dir = TOKEN_DIR, now = Date.now()) {
   try {
     const t = JSON.parse(readFileSync(`${dir}/${sha256(token)}`, "utf8"));
     if (!/^[a-z0-9-]{3,64}$/.test(t.run_id) || !(Date.parse(t.expires_at) > now)) return null;
-    const serverTools = Array.isArray(t.server_tools) ? t.server_tools.filter((x) => SERVER_TOOLS[x]) : [];
+    const serverTools = Array.isArray(t.server_tools) ? t.server_tools.filter((x) => Object.hasOwn(SERVER_TOOLS, x)) : [];
     return { runId: t.run_id, serverTools };
   } catch { return null; }
 }
 
-/** Server-side tools a run profile can allow, by the tool `type` the API uses (any dated version). */
-const SERVER_TOOLS = { web_search: /^web_search_\d{8}$/ };
+/**
+ * Server-side tools a run profile can allow, each as an exact check of the tool definition. Only the version tested
+ * with the pinned CLI passes: later web search versions can run code at Anthropic for filtering, so a new version is
+ * refused until it is tested and added here (branch review finding 1). Programmatic callers are refused too.
+ */
+const SERVER_TOOLS = {
+  web_search: (t) => t.type === "web_search_20250305"
+    && (t.allowed_callers === undefined || (Array.isArray(t.allowed_callers) && t.allowed_callers.length === 1 && t.allowed_callers[0] === "direct")),
+};
 /** Request fields that make Anthropic reach out on the run's behalf; never allowed. */
 const FORBIDDEN_FIELDS = ["mcp_servers", "container"];
+/** Fixed refusal reasons: nothing from the request is echoed into logs or answers (branch review finding 5). */
+export const REFUSED = { json: "request is not a JSON object", field: "remote tools or containers are not allowed", tools: "invalid tool list", server: "unauthorized server tool" };
 
 /**
- * Checks the tools a request offers against the run's allowed server-side tools. A tool without `type` (or `custom`)
- * is a client tool the CLI runs itself, inside the isolated container. Every other type runs at Anthropic (web fetch,
- * code execution, …) or is an Anthropic-defined client tool; only an allowed `web_search_*` passes.
- * Returns null when allowed, else a reason.
+ * Checks the tools a request offers against the run's allowed server-side tools; fail-closed. A client tool (an object
+ * with a string `name` and no `type` or `custom`) runs in the CLI inside the isolated container. Every other entry is
+ * refused unless it is exactly an allowed server-side tool. Returns null when allowed, else one of REFUSED.
  */
 export function checkRequest(body, serverTools) {
   let j;
-  try { j = JSON.parse(body.toString("utf8")); } catch { return "request is not JSON"; }
-  if (typeof j !== "object" || j === null || Array.isArray(j)) return "request is not a JSON object";
-  for (const f of FORBIDDEN_FIELDS) if (j[f] !== undefined) return `${f} is not allowed`;
-  if (j.tools === undefined) return null;
-  if (!Array.isArray(j.tools)) return "tools must be a list";
+  try { j = JSON.parse(body.toString("utf8")); } catch { return REFUSED.json; }
+  if (typeof j !== "object" || j === null || Array.isArray(j)) return REFUSED.json;
+  for (const f of FORBIDDEN_FIELDS) if (Object.hasOwn(j, f)) return REFUSED.field;
+  if (!Object.hasOwn(j, "tools")) return null;
+  if (!Array.isArray(j.tools)) return REFUSED.tools;
   for (const t of j.tools) {
-    const type = t?.type;
-    if (type === undefined || type === "custom") continue;
-    if (typeof type === "string" && serverTools.some((name) => SERVER_TOOLS[name].test(type))) continue;
-    return `tool type ${String(type).slice(0, 60)} is not allowed for this run`;
+    if (typeof t !== "object" || t === null || Array.isArray(t) || typeof t.name !== "string") return REFUSED.tools;
+    if (!Object.hasOwn(t, "type") || t.type === "custom") continue;
+    if (!serverTools.some((name) => SERVER_TOOLS[name](t))) return REFUSED.server;
   }
   return null;
 }
