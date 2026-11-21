@@ -4,6 +4,7 @@ A local software factory: AI agents (Claude CLI) build software in hardened Dock
 
 Status: concept phase, implementation started. The playbook and workflow specify the intended factory behavior. Implemented so far: the factory base in [factory/](factory/) (local Forgejo and the egress proxies); everything else is not implemented yet.
 
+- [ROADMAP.md](ROADMAP.md) – what is done, in progress and planned.
 - [PLAYBOOK.md](PLAYBOOK.md) – the rules every run follows: agent rules, enforcement mechanisms, verification requirements and agent instructions.
 - [WORKFLOW.md](WORKFLOW.md) – the workflow from idea to released software, step by step; its [Version 1 scope](WORKFLOW.md#version-1-scope) says what the first implementation builds.
 - [AGENTS.md](AGENTS.md) – the agents of each workflow step: skill, factory tools, run profile and output.
