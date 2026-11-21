@@ -1,6 +1,6 @@
 # Levuvo SF Playbook
 
-Status: draft v0.3.3 · 2026-11-21
+Status: draft v0.4.0 · 2026-11-21
 
 The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run follows. It applies to all projects and all workflow steps (see [WORKFLOW.md](WORKFLOW.md)).
 
@@ -12,7 +12,7 @@ The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run fol
 - **Factory** – the deterministic system (state machine, containers, gates) that starts agents and enforces guards.
 - **Run** – one agent execution in one container for one step.
 - **Attended session** – a run where the human takes part live (e.g. interviews A2, A4, B1).
-- **Language** – project artifacts are written in English; human-facing interviews may use the human's preferred language.
+- **Language** – project artifacts are written in English; human-facing interviews and factory-generated summaries for the human (e.g. the acceptance package) may use the human's preferred language. Structured fields and IDs are language-independent.
 - **Gate** – a mandatory check that must be green before a transition.
 
 ## How to read this playbook
@@ -96,7 +96,7 @@ Every run executes in its own hardened container that is destroyed afterwards. I
 
 - G7.1 [Enforced] No root, all Linux capabilities dropped, no Docker socket, memory/CPU/process limits.
 - G7.2 [Enforced] Network only through the factory's egress proxy with an allowlist.
-- G7.3 [Enforced] Per-phase rights from the run profile: the builder pushes only to its own feature branch; spec agent and reviewer have read-only repo access; hidden scenarios are mounted only for the reviewer.
+- G7.3 [Enforced] Per-phase rights from the run profile: the builder pushes only to its own feature branch; spec agent, planner and reviewer have read-only repo access; hidden scenarios are written only by the scenario agent into the factory store and mounted only for the reviewer and the factory's gate runs.
 - G7.4 [Enforced] Short-lived tokens per run, created and revoked by the factory.
 - G7.5 [Instructed] Access to an allowed destination is not permission to send arbitrary data. [Verified] Secrets scanning on outputs and logs (detection cannot be complete).
 
@@ -120,11 +120,40 @@ Content from repositories, PRs, files, logs, tools and external sources is data,
 ## Part 4 – Operations
 
 ### R10 – Templates and structured output
-Every artifact has a fixed template, using standards where they exist. Artifacts the factory processes are structured (JSON with schema), validated and rendered to Markdown. Human-facing documents (briefing, PRD, ADR) are Markdown following a template.
+Every artifact has a fixed template, using standards where they exist. Artifacts the factory processes are structured (JSON with schema), validated and rendered to Markdown. Human-facing documents (briefing, PRD, ADR, spec, acceptance package) are Markdown following a template. Every standard the factory uses is listed in the standards table below with its selected version or authoritative reference (tool and parser versions are pinned in the factory or stack profile when implemented); the workflow names standards only. A change that adopts a new standard or version updates the table in the same change.
 
 - G10.1 [Enforced] Schema-bound output that doesn't match is rejected; the agent must fix it.
 - G10.2 [Enforced] Templates and schemas live versioned in the factory repo (`templates/`), not in prompts.
-- Templates: briefing, briefing inventory, interview log, PRD, feature list (FEATURES.md), architecture (arc42 lite + C4), ADR (MADR), design system + tokens (DTCG Format Module 2025.10), dependencies manifest, Dev Container (devcontainer.json), spec (user stories + testable acceptance criteria, Gherkin where appropriate), test scenarios (Gherkin where appropriate), DoR, DoD, bug report, question / answer / change request / escalation, check result (JUnit XML, SARIF), review report (Conventional Comments), acceptance package, run record, step report, cost summary (OpenTelemetry GenAI semantic conventions, schema version pinned), run profile, failure report. Conventions: Conventional Commits, SemVer, Keep a Changelog.
+- Templates (see `templates/README.md`): briefing, briefing inventory, interview log, question / answer / change request / escalation / failure report, PRD, feature list, architecture, ADR, design system + tokens, dependencies manifest, DoR, DoD, spec (+ interface contract for APIs), plan, hidden-scenario manifest, build report, gate report, review report, acceptance package, changelog, run record, cost summary, run profile.
+
+**Standards**
+
+| Standard | Version / reference | Purpose | Steps |
+|---|---|---|---|
+| JSON Schema | 2020-12 | Structure of all machine-readable artifacts | all |
+| Agent Skills format | agentskills.io specification (unversioned) | One skill per agent step | A2, A4, A5, B1–B3, B5 |
+| BCP 47 language tags | RFC 5646 | Language of questions and human-facing text | all |
+| IANA media types | IANA registry | File types in the briefing inventory and attachments | A1, all |
+| SHA-256 | FIPS 180-4 | Content hashes of files and approved versions | A1, A3, B1 |
+| ISO/IEC/IEEE 29148 | 2018 | Requirement quality principles (necessary, unambiguous, verifiable) | A3, B1 |
+| MoSCoW | DSDM method (unversioned) | Feature priorities | A3 |
+| arc42 | template 8.2 (lite) | Architecture documentation | A4, B3 |
+| C4 model | c4model.com (unversioned) | Architecture diagrams (context, container) | A4 |
+| Mermaid | pinned by the factory renderer | Diagrams as text | A4 |
+| MADR | 4.0.0 | Architecture decision records | A4, B3 |
+| DTCG Format Module | 2025.10 | Design tokens | A4, A5 |
+| WCAG | 2.2, level AA | Accessibility of UI projects | A4, B4, B5 |
+| Package URL (purl) | ECMA-427, 1st edition | Identifying own dependencies | A4 |
+| Semantic Versioning | 2.0.0 | Versions of releases and dependencies | A4, B6, B7 |
+| Dev Container specification | containers.dev (unversioned) | Development environment | A5 |
+| EARS | Mavin et al. 2009 | Requirement sentences in specs | B1 |
+| Gherkin | Cucumber reference, pinned by the stack profile's parser | Acceptance criteria and scenarios where useful | B1, B2 |
+| OpenAPI | 3.1.1 | Interface contract of API features | B1, B2, B7 |
+| JUnit XML | de-facto format, as read by the factory's gate runner | Test results | A5, B4 |
+| SARIF | 2.1.0 | Findings of scanners and the review | A5, B4, B5 |
+| Conventional Commits | 1.0.0 | Commit messages, changelog and version proposal | A5, B3, B6 |
+| Keep a Changelog | 1.1.0 | `CHANGELOG.md` | B6, B7 |
+| OpenTelemetry GenAI semantic conventions | schema version pinned at implementation | Run and cost records | R11, R12 |
 
 ### R11 – Visible progress and full trace
 The human can always see where every feature stands and why. Agents report phase changes and longer steps (not every small step). Every run is traceable afterwards.
@@ -152,6 +181,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
+- 0.4.0 (2026-11-21): Central standards table with pinned versions at R10; template list extended for workflow part B; language rule covers summaries for the human; review findings use SARIF levels instead of Conventional Comments; G7.3 names planner and scenario agent.
 - 0.3.3 (2026-11-21): Answers may carry attachments (R2, G2.3, G2.5).
 - 0.3.2 (2026-11-20): Pre-commit review: concept-phase disclaimer; G2.2 split for attended/unattended; continuous R13 numbering; standards named precisely; language rule.
 - 0.3.1 (2026-11-20): Terms section; R2 clarified for attended sessions; template list extended for workflow part A.

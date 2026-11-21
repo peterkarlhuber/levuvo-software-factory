@@ -1,18 +1,18 @@
 # Levuvo SF Workflow
 
-Status: draft v0.1.2 · 2026-11-21 · Part A specified, parts B and C planned
+Status: draft v0.2.0 · 2026-11-21 · Parts A and B specified, part C planned
 
 > This document specifies the intended behavior of the factory. During the concept phase, guards are requirements, not yet implemented or verified controls.
 
 ## Overview
 - **A. New project (once):** A0 create project → A1 briefing → A2 interview → A3 PRD + feature list → A4 design → A5 skeleton
-- **B. Feature (per feature, planned):** B1 spec interview → B2 spec (approval, Definition of Ready) → B3 planning + hidden scenarios → B4 test-first build + PR → B5 automated gates → B6 independent review → B7 docs + Definition of Done → B8 acceptance package → human authorizes merge → release version by SemVer compatibility impact
+- **B. Feature (per feature):** B1 spec → B2 plan + hidden scenarios → B3 test-first build + PR → B4 gates → B5 independent review → B6 docs + Definition of Done → B7 acceptance package, human authorizes merge, release version by SemVer
 - **C. Bug (per bug, planned):** C1 report → C2 bug report → C3 classify (human decides) → C4 failing test + fix → C5 gates → C6 review → C7 docs + DoD → C8 acceptance package → human authorizes merge → release version by SemVer compatibility impact
 - **Later:** backlog/prioritization, hotfix path, deployment/rollback/monitoring, process metrics.
 
-Human decision points in part A: approve PRD + feature list (A3), product-relevant ADRs (A4), DoR/DoD (A5).
+Human decision points in part A: approve PRD + feature list (A3), product-relevant ADRs (A4), DoR/DoD (A5). In part B the human decides twice per feature: approve the spec (B1) and authorize the merge (B7). Questions an agent cannot answer itself (R2) come on top.
 
-The playbook ([PLAYBOOK.md](PLAYBOOK.md)) holds the rules that apply everywhere. This document describes each workflow step: purpose, input, output, templates and the step-specific guards. Guard marks: [Enforced], [Verified], [Instructed] (see playbook).
+The playbook ([PLAYBOOK.md](PLAYBOOK.md)) holds the rules that apply everywhere. This document describes each workflow step: purpose, input, output, templates and the step-specific guards. Guard marks: [Enforced], [Verified], [Instructed] (see playbook). Standards are named here without versions; the pinned versions are in the playbook's standards table (R10).
 
 ---
 
@@ -46,7 +46,7 @@ The human collects everything about the idea in the folder `briefing/`. Any file
   - GA1.5 [Enforced] Files agents cannot read (e.g. video) are marked in the inventory; A2 asks the human about them.
 
 ### A2 – Interview
-An interview agent reads the whole briefing and clarifies only the gaps with the human. Goal: the product level (what and why) – it fills the PRD live, section by section, from the briefing and the answers. Not feature specs (B1/B2) and not tech/design (A4). This is an attended session: R2's "never wait in a chat" applies to unattended runs; the question format (one question, recommended answer) stays.
+An interview agent reads the whole briefing and clarifies only the gaps with the human. Goal: the product level (what and why) – it fills the PRD live, section by section, from the briefing and the answers. Not feature specs (B1) and not tech/design (A4). This is an attended session: R2's "never wait in a chat" applies to unattended runs; the question format (one question, recommended answer) stays.
 
 Flow: read all readable inventory files → draft every PRD section the briefing already answers (with source) → ask one question at a time with a recommended answer, updating the PRD live → as soon as the scope (PRD section 7) is drafted, derive the feature list live as well, and keep it in sync with later answers (each feature inside the scope; MoSCoW priority as a preliminary classification and dependencies, proposed by the agent, confirmed by the human; the actual work order is decided later) → end when every section is confirmed or listed under "Open questions" by the human.
 
@@ -62,7 +62,7 @@ The human reviews and approves the PRD (stable, changes rarely) and the initial 
 
 - Output: `docs/PRD.md`, `docs/FEATURES.md`.
 - Templates:
-  - PRD (common PRD sections, informed by the requirements-engineering principles of ISO/IEC/IEEE 29148:2018): 1 Vision, 2 Problem, 3 Users, 4 Alternatives, 5 Goals & success criteria, 6 Non-goals, 7 Scope (major capabilities and boundaries, no feature list), 8 Quality (performance, security, privacy e.g. GDPR, accessibility, languages, devices), 9 Constraints (hosting, budget, deadline, prescribed tech), 10 Open questions. Each section with status and source.
+  - PRD (common PRD sections, informed by the requirements-engineering principles of ISO/IEC/IEEE 29148): 1 Vision, 2 Problem, 3 Users, 4 Alternatives, 5 Goals & success criteria, 6 Non-goals, 7 Scope (major capabilities and boundaries, no feature list), 8 Quality (performance, security, privacy e.g. GDPR, accessibility, languages, devices), 9 Constraints (hosting, budget, deadline, prescribed tech), 10 Open questions. Each section with status and source.
   - FEATURES.md (structured, rendered from JSON): ID, name, one sentence, priority (MoSCoW), depends on, status (set by the factory).
 - Guards:
   - GA3.1 [Enforced] PRD approval requires all essential product decisions to be confirmed. Non-blocking open questions may remain only if the human explicitly accepts them as open.
@@ -79,7 +79,7 @@ Topics: 1 stack (language, framework, database, login, tests, hosting), 2 archit
 - Output / templates:
   - `docs/ARCHITECTURE.md` – lightweight arc42 documentation, with C4 System Context and Container diagrams where useful (components only if needed); includes the stack and a separate data-model description when applicable. Features later only add changes.
   - `docs/adr/NNNN-title.md` – MADR, one file per decision, marked "product-relevant" or "internal".
-  - `docs/DESIGN-SYSTEM.md` + design tokens conforming to the Design Tokens Community Group (DTCG) Format Module 2025.10, where applicable.
+  - `docs/DESIGN-SYSTEM.md` + design tokens conforming to the Design Tokens Community Group (DTCG) Format Module, where applicable.
   - `docs/DEPENDENCIES.json` – own dependencies: repo, purpose, pinned version, how it is integrated. Standard path: own libraries are published with SemVer versions to the Forgejo package registry (npm, PyPI, …) and consumed via the normal package manager; GitHub repos are mirrored to the local git server.
 - Artifacts that do not apply to the project (e.g. no UI, no database, no own libraries) are marked as not applicable; they are not created as empty documents.
 - Stack profiles: the factory supports a fixed list of stacks, each with its own image, gates and conventions (idea from Alex's stack packs).
@@ -109,7 +109,107 @@ Flow: scaffold on a feature branch with the stack's official generator + one pas
 
 ---
 
+## B. Feature (per feature)
+
+Every feature runs B1–B7 on its own feature branch. Everything a step produces is bound to the spec version it was made for (R5): a new spec version restarts the feature at B2. The factory's state machine sets the feature status (GA3.5): `approved` (A3) → `specifying` (B1) → `ready` (spec approved) → `in_progress` (B2–B6) → `in_acceptance` (B7) → `done`.
+
+Files per feature: `features/<ID>/SPEC.md` (+ `features/<ID>/openapi.yaml` for APIs) and `features/<ID>/PLAN.md` live in the project repo; hidden scenarios, gate reports and review reports live in the factory, outside the repo the builder can read.
+
+### B1 – Spec
+Attended session like A2. A spec agent turns one feature from the feature list into a testable spec; the human approves it. This is the first of the two human decisions per feature.
+
+Flow: the factory proposes the next feature (highest priority whose dependencies are `done`); the human confirms or picks another → the spec agent reads PRD, FEATURES, architecture, ADRs, design system and the specs of already built features → pre-drafts every spec section it can (with source) → asks only the gaps, one question per round with a recommended answer, updating the spec live; answers may carry attachments (G2.5) → for an API it writes the interface contract with the spec → the factory runs the Definition of Ready check → the human approves the spec.
+
+- Output: `features/<ID>/SPEC.md` (rendered from structured output); for APIs `features/<ID>/openapi.yaml` (OpenAPI, or the format the API-style ADR from A4 names).
+- Templates: SPEC (user stories; requirements in EARS, each with acceptance criteria `AC-<feature>-<nn>`, e.g. `AC-001-01`, Gherkin where useful; out of scope; UI reference to the design system only if a design system applies; interface contract only for APIs; open questions). Every acceptance criterion must be checkable by an automated test; what only a human can judge belongs to the Definition of Done.
+- Revision: a requirement change later (from B3–B7 or by the human) produces a new spec version through the same session (G1.3). Approval of the new version invalidates plan, hidden scenarios, gate and review results of the old version and restarts the feature at B2; existing code on the branch may stay, but is re-planned and checked again in full.
+- Guards:
+  - GB1.1 [Enforced] Only a feature from the approved feature list can be specified, and only when all features it depends on are `done`.
+  - GB1.2 [Enforced] The spec must match its schema: every requirement has at least one acceptance criterion, every criterion has a unique ID and a pass/fail statement. Every user story and requirement names its source. Whether a requirement is a clear EARS sentence and a criterion is really testable is [Verified] by the spec agent's self-check and the human at approval.
+  - GB1.3 [Enforced] Approval binds one spec version (content hash). Any change is a new version that needs a new approval (R1, G1.2, G1.3).
+  - GB1.4 [Enforced] If the spec would go beyond the PRD scope or contradict an approved ADR, the agent stops and asks; the spec cannot be approved until the PRD or ADR is revised or the spec adjusted. (Detecting the conflict is [Verified] by the agent and the DoR check; the block is enforced.)
+  - GB1.5 [Enforced] Approval requires a passed Definition of Ready (A5); blocking open questions prevent approval, non-blocking ones only if the human explicitly accepts them.
+
+### B2 – Plan and hidden scenarios
+Two separate unattended runs with fresh context, started by the factory after spec approval. They do not see each other's output.
+
+**Plan.** A planner agent reads the approved spec, architecture, ADRs and the code (read-only) and writes the plan: ordered tasks, each mapped to the acceptance criteria it serves, sized to the feature (a small feature is one task). The last task is always "update docs" (README, usage, API description, ADR if needed). The plan lists its impact: files and modules it will change, and other features it touches. If the plan would have to change another feature's spec or an approved ADR, the planner stops and asks (R2). Tasks are a checklist the builder ticks off in B3.
+
+**Hidden scenarios.** A scenario agent writes executable acceptance tests from the approved spec only (including the interface contract and the stack profile's test conventions; no plan, no code). Each test names the acceptance criterion it checks. The factory stores them outside the project repo (holdout) and uses them in B4; the builder never sees them, the reviewer does (G3.3).
+
+- Output: `features/<ID>/PLAN.md` (rendered from structured output); hidden scenarios + their manifest (factory store).
+- Templates: PLAN (tasks with AC mapping and done flag, impact), hidden-scenario manifest (test → AC), tests in the stack's test framework, Gherkin where the stack profile supports it.
+- Guards:
+  - GB2.1 [Enforced] Every acceptance criterion is covered by at least one plan task and at least one hidden test; otherwise B3 cannot start.
+  - GB2.2 [Enforced] Hidden tests may only reference acceptance criteria of the approved spec version; a test without a valid AC ID is rejected. [Verified] The reviewer checks that a hidden test asserts nothing beyond its criterion.
+  - GB2.3 [Enforced] The builder has no read access to the hidden tests (R7).
+  - GB2.4 [Verified] Before B3 the factory runs every hidden test against current `main` and records the baseline. A valid red test runs up to its assertion and fails there; a test that errors (syntax, imports, environment) goes back to the scenario agent. A test that already passes (behaviour exists) is recorded and checked by the reviewer for meaningful coverage; it is not changed to fail artificially.
+  - GB2.5 [Enforced] Every hidden scenario set has a version with a content hash; baseline, gate and review results are bound to it (R5). A corrected test creates a new version and voids the affected results.
+
+### B3 – Build
+Unattended run like A5. A builder agent implements the plan test-first on its own branch.
+
+Flow per task: write the visible tests for the task's acceptance criteria first and commit them (red) → write the code until they are green → run lint and tests with the A5 commands → tick the task in the plan → next task. The last task updates the docs. When all tasks are ticked, the builder finishes with a build report; the factory pushes, opens the PR and starts B4.
+
+- Run profile: own container, own branch, network only via the egress proxy, no secrets; no access to `main`, the gates or the hidden tests; approved spec, plan and baselines are read-only (G1.1, GA4.3).
+- Templates: build report (summary for the human, deviations, assumptions, risks, required environment variables); commits follow Conventional Commits.
+- Guards:
+  - GB3.1 [Verified] Every acceptance criterion has a visible test (named with its AC ID) committed before the code; the factory checks the commit order and that the test failed at its assertion at that commit, unless the behaviour already existed on `main` (GB2.4).
+  - GB3.2 [Enforced] The diff may only touch what the plan's impact lists; anything else is rejected and the builder must stop with a question (re-plan).
+  - GB3.3 [Enforced] Error loops stop the run (R13); the number of fix attempts is a setting (M3).
+  - GB3.4 [Instructed] Build nothing the spec does not ask for. [Enforced] The build report must list deviations (an empty list is allowed); finishing without it is rejected. [Verified] The reviewer checks for unrequested behaviour (B5).
+
+### B4 – Gates
+No agent. The factory checks the PR in the local Forgejo CI, in a fresh, clean container, on the PR as merged onto current `main` (R5, G5.3).
+
+- Gates: the mandatory gates, all generated from DoD items (A5, G4.2): build, lint, visible tests, hidden tests, secret scan, dependency vulnerability scan, license check, acceptance-criteria coverage (every AC has a passing visible and hidden test), commit messages (GB6.2); the stack profile adds more (e.g. type check, accessibility check for UI).
+- Results: test results as JUnit XML, findings as SARIF; the factory combines them into a gate report with a status per acceptance criterion: passed / failed / not checked.
+- Red: the factory sends a builder view of the failures back to B3 automatically. The full gate report stays in the factory; the builder view contains, for hidden tests, only the AC ID and a sanitized description of the failed behaviour, never test IDs, code, paths, fixtures, data or raw traces. After the round limit (setting, R4 default 2) the factory stops and asks the human (R13).
+- Disputed hidden test: if the builder reports (as a failure report, not a question to the human) that a hidden-test failure contradicts the spec, or the round limit is reached on a hidden test, the factory first has the reviewer (B5 identity) check that test against its acceptance criterion (review mode `test_check`; it never advances the feature to B6/B7). The human is asked only if the check cannot settle it. An invalid test goes back to the scenario agent (B2), is re-validated (GB2.4) and the gates run again; this does not use a builder round.
+- Templates: gate report (per gate and per AC, bound to commit, spec version, gate-policy version).
+- Guards:
+  - GB4.1 [Enforced] Gates run outside any agent container; agents cannot change, skip or influence them (R8).
+  - GB4.2 [Enforced] Every result is bound to commit, spec version and gate-policy version (R5).
+  - GB4.3 [Enforced] "Not checked" blocks exactly like "failed" (R6).
+
+### B5 – Independent review
+After all gates are green, a reviewer agent with its own identity checks what gates cannot (R3).
+
+- Input: approved spec, plan, PR diff, gate report, build report (marked as the builder's statements), architecture, ADRs, DoD items to be checked in review, hidden scenarios (G3.3). Not the builder's conversation or reasoning.
+- Checks: the spec is really implemented (not just tests green), fits architecture and ADRs, readable and maintainable, security risks, nothing built beyond the spec, docs updated, hidden scenarios plausible.
+- Report: findings `blocking` / `important` / `note`, each with file, line and a reference to spec, AC, ADR or DoD item; plus evidence for each DoD review item. Blocking findings about the implementation go back to B3, findings about a hidden scenario go to B2; then B4 and B5 run again; round limit is a setting (R4 default 2). Findings describe behaviour, never quote hidden tests (G3.3).
+- Templates: review report.
+- Guards:
+  - GB5.1 [Enforced] Reviewer and builder are separate runs with separate identities; the reviewer has read-only access.
+  - GB5.2 [Enforced] The review is bound to the commit it reviewed (R5); a new push makes it outdated.
+  - GB5.3 [Instructed] Every finding needs evidence (file, line, reference); matters of taste are never `blocking`. [Verified] The factory rejects findings without location and reference, and a report that does not give evidence for exactly the DoD review items (a missing item counts as not met).
+  - GB5.4 [Verified] Before review findings reach the builder, the factory checks them for hidden-scenario details (G3.3).
+
+### B6 – Docs and Definition of Done
+No agent. Docs were written by the builder in B3 (plan task) and checked by the reviewer in B5. The factory checks the DoD (A5): automated items from the gate report, review items from the review report; human items are listed in the acceptance package. It generates the changelog entry from the commits, proposes the next version and adds both as a factory commit to the PR before the acceptance package is built; the gates run on that commit, so the human approves exactly this diff (B7).
+
+- Standards: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), SemVer. Version proposal: commits are the input (breaking change → major, `feat` → minor, otherwise patch; below 1.0.0 a breaking change is minor); for APIs the factory also compares the old and new contract and a detected breaking change overrides the commit types. The human confirms the version at acceptance.
+- Guards:
+  - GB6.1 [Enforced] An open automated or review DoD item blocks B7.
+  - GB6.2 [Enforced] Every commit on the branch follows Conventional Commits (a DoD item every stack profile proposes, checked as a gate).
+
+### B7 – Acceptance
+No agent. The factory generates the acceptance package; the human decides. This is the second human decision per feature.
+
+- `ACCEPTANCE.md`, one page, plain language: what is new (2–3 sentences in the human's language, from the build report); each acceptance criterion ✅ passed / ❌ failed / ⚪ not checked (approval only possible if all are ✅, R6); try it: for UI a preview of the branch in a container reachable via Tailscale from Mac and iPhone, plus screenshots; for APIs the rendered OpenAPI docs in the preview; review summary and deviations; DoD items the human confirms; changelog entry, version proposal and feature cost (R12).
+- Decision:
+  - **Approve merge:** the factory validates exactly the approved diff (incl. changelog entry and version) against current `main` (GB7.2), merges it and tags that verified commit, marks the feature `done`; the GitHub mirror archives. Nothing is changed after approval; if the human changes the proposed version, the factory updates the changelog commit, re-runs the gates and asks for approval of the new diff.
+  - **Reject with comment:** a code issue goes back to B3 (then B4–B7) with fresh fix rounds, because the rejection is itself the human's decision under R4 (the factory logs it as such); a requirement issue starts a new spec version in B1.
+- Templates: ACCEPTANCE.md, CHANGELOG.md.
+- Guards:
+  - GB7.1 [Enforced] Approval is bound to the diff, spec version and gate-policy version shown in the package (R5, G5.5); any change voids it.
+  - GB7.2 [Enforced] Right before merging, the factory validates the exact merge result (incl. changelog entry) against current `main`: gates always run again; independent review and renewed human authorization when G5.4/G5.5 require them. Only the verified result is merged.
+  - GB7.3 [Enforced] Only the human can authorize the merge (R3).
+
+---
+
 ## Change log
+- 0.2.0 (2026-11-21): ChatGPT review and re-check of part B worked in (review modes, scenario-set versions GB2.5, changelog commit before approval, disputed hidden tests go to B2, builder view of gate results, changelog inside the verified merge, valid red baseline, revision invalidates results, SemVer proposal); part B (B1–B7) specified: spec, plan + hidden scenarios, test-first build, gates, independent review, docs + DoD, acceptance; feature statuses; standards named without versions (pinned in the playbook, R10).
 - 0.1.2 (2026-11-21): Answers with attachments in A2/A4/A5 (G2.5); GA2.3 exception for attachments; interview log records attachments.
 - 0.1.1 (2026-11-20): Pre-commit review: A5 uses the normal PR/review/approval path; attended interviews; precise guards for A1–A4; SemVer by compatibility; standards named precisely; not-applicable artifacts.
 - 0.1 (2026-11-20): Part A (A0–A5) specified.

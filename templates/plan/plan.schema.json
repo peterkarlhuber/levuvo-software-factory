@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:plan:0.1",
+  "title": "Levuvo SF feature plan (B2, GB2.1, GB3.2)",
+  "description": "Source of features/<ID>/PLAN.md (rendered by the factory). Written by the planner through tools; 'done' flags are set by the factory when the builder completes a task. The factory additionally checks that every AC of the spec version is covered by a task (GB2.1), that AC IDs exist in that version, and that the last task is the docs task. write_plan accepts only tasks with done: false; only complete_task (B3) sets done: true.",
+  "type": "object",
+  "required": ["feature_id", "spec_version", "tasks", "impact"],
+  "properties": {
+    "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "spec_version": { "type": "integer", "minimum": 1, "description": "Set by the factory (R5)." },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered. Size to the feature: a small feature is one task plus the docs task.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "kind", "acceptance_criteria", "done"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^T-[0-9]{2,}$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "kind": { "enum": ["build", "docs"], "description": "build = tests first, then code; docs = README, usage, API description, ADR if needed." },
+          "acceptance_criteria": { "type": "array", "items": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$" }, "uniqueItems": true },
+          "notes": { "type": "string", "description": "Approach in a few lines, no code." },
+          "done": { "type": "boolean", "description": "Factory-managed." }
+        },
+        "if": { "properties": { "kind": { "const": "build" } } },
+        "then": { "properties": { "acceptance_criteria": { "minItems": 1 } } },
+        "additionalProperties": false
+      }
+    },
+    "impact": {
+      "type": "object",
+      "required": ["paths", "modules", "other_features"],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Files or glob patterns the builder may change (GB3.2), incl. tests and docs.",
+          "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } }
+        },
+        "modules": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Building blocks from ARCHITECTURE.md." },
+        "other_features": { "type": "array", "items": { "type": "string", "pattern": "^F-[0-9]{3,}$" }, "uniqueItems": true, "description": "Features whose code is touched. Changing their spec or an approved ADR is a question, not a plan (R2)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

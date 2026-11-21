@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:scenarios:0.1",
+  "title": "Levuvo SF hidden-scenario manifest (B2, GB2.1-GB2.5)",
+  "description": "Maps hidden acceptance tests to acceptance criteria. Stored with the tests in the factory, outside the project repo; never readable by the builder (GB2.3). The factory additionally checks that every AC of the spec version has at least one test (GB2.1), that every referenced AC exists in that version (GB2.2), and records the baseline run on main per test (GB2.4).",
+  "type": "object",
+  "required": ["feature_id", "spec_version", "version", "framework", "tests"],
+  "properties": {
+    "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "spec_version": { "type": "integer", "minimum": 1, "description": "Set by the factory." },
+    "version": { "type": "integer", "minimum": 1, "description": "Scenario-set version, set by the factory; any test change creates a new one (GB2.5)." },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Content hash of all test files of this version; set by the factory." },
+    "framework": { "type": "string", "minLength": 1, "description": "Acceptance-test framework from the stack profile, e.g. playwright, pytest, cucumber." },
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "acceptance_criterion", "file", "title"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$" },
+          "acceptance_criterion": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$", "description": "Exactly one AC per test (GB2.2)." },
+          "file": { "type": "string", "minLength": 1, "description": "Path inside the factory's scenario store.", "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" } },
+          "title": { "type": "string", "minLength": 1, "description": "Test name; must contain the AC ID so JUnit results map to it." }
+        },
+        "additionalProperties": false
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "description": "Factory-managed result of GB2.4 on current main.",
+      "required": ["main_commit", "checked_at", "results"],
+      "properties": {
+        "main_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "checked_at": { "type": "string", "format": "date-time" },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["test_id", "status"],
+            "properties": {
+              "test_id": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$" },
+              "status": { "enum": ["failed_assertion", "passed", "error"], "description": "failed_assertion = valid red; passed = behaviour exists, reviewer checks coverage; error = back to the scenario agent." }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

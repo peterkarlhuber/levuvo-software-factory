@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:gate-report:0.1",
+  "title": "Levuvo SF gate report (B4, GB4.1-GB4.3, R5)",
+  "description": "Written by the factory only, from its own gate runs (JUnit XML for tests, SARIF for findings). Bound to commit, spec version, scenario-set version and gate-policy version; any change makes it outdated (G5.2). The complete report is factory-internal. The builder gets a separate factory-generated view: per failed AC only the AC ID and a sanitized description of the failed behaviour; hidden test IDs, code, paths, fixtures, data and raw traces never appear in it (GB2.3). Every gate comes from the active gate policy and is derived from a DoD item (G4.2).",
+  "type": "object",
+  "required": ["feature_id", "commit", "main_commit", "spec_version", "scenario_set_version", "gate_policy_version", "round", "created_at", "gates", "acceptance_criteria"],
+  "properties": {
+    "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "PR head commit." },
+    "main_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "main the PR was merged onto for the check (G5.4)." },
+    "spec_version": { "type": "integer", "minimum": 1 },
+    "scenario_set_version": { "type": "integer", "minimum": 1, "description": "Hidden scenario set the hidden tests came from (GB2.5)." },
+    "gate_policy_version": { "type": "integer", "minimum": 1 },
+    "round": { "type": "integer", "minimum": 1, "description": "Fix round; limit is a setting (R4)." },
+    "created_at": { "type": "string", "format": "date-time" },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "dod_item", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "description": "E.g. build, lint, visible-tests, hidden-tests, secret-scan, vulnerability-scan, license, ac-coverage, conventional-commits." },
+          "dod_item": { "type": "string", "pattern": "^DOD-[0-9]+$" },
+          "status": { "$ref": "#/$defs/status" },
+          "result_format": { "enum": ["junit-xml", "sarif", "exit-code"] },
+          "result_file": { "type": "string", "description": "Path in the factory's result store." },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$" },
+          "status": { "$ref": "#/$defs/status" },
+          "visible_tests": { "type": "array", "items": { "type": "string" }, "description": "Visible test names that reference this AC." },
+          "hidden_tests": { "type": "array", "items": { "type": "string", "pattern": "^HS-[0-9]{3,}-[0-9]{2,}$" }, "description": "IDs only; shown to the builder never, to the reviewer yes." },
+          "message": { "type": "string", "description": "Raw failure message, factory-internal; the builder view carries only a sanitized behaviour description." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "status": { "enum": ["passed", "failed", "not_checked"], "description": "not_checked blocks like failed (GB4.3)." }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:build-report:0.1",
+  "title": "Levuvo SF build report (B3, GB3.4, R6)",
+  "description": "Handed over with finish_build. The agent's own statements only (G6.1, G6.4); the factory adds facts (commits, results, cost) itself and shows these statements separately from independent findings. deviations is required, an empty list is allowed (GB3.4).",
+  "type": "object",
+  "required": ["feature_id", "spec_version", "summary", "summary_language", "deviations", "assumptions", "risks"],
+  "properties": {
+    "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+    "spec_version": { "type": "integer", "minimum": 1 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 600, "description": "What is new, 2-3 plain sentences for the acceptance package." },
+    "summary_language": { "type": "string", "minLength": 2, "description": "BCP 47 tag of the human's language, e.g. de." },
+    "deviations": {
+      "type": "array",
+      "description": "Anything done differently from spec or plan, incl. anything built that the spec does not ask for.",
+      "items": {
+        "type": "object",
+        "required": ["text", "reason"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "refs": { "type": "array", "items": { "type": "string" }, "description": "AC, task, ADR or file." }
+        },
+        "additionalProperties": false
+      }
+    },
+    "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "env_vars": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "description": "Required environment variables, names only, never values." }
+  },
+  "additionalProperties": false
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:features:0.1",
+  "$id": "urn:levuvo:sf:schema:features:0.2",
   "title": "Levuvo SF feature list (A3, GA3.3-GA3.5)",
   "description": "Source of docs/FEATURES.md (rendered by the factory). IDs and statuses are set by the factory only.",
   "type": "object",
@@ -21,7 +21,9 @@
           "priority": { "enum": ["must", "should", "could", "wont"], "description": "MoSCoW, preliminary; work order is decided later." },
           "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^F-[0-9]{3,}$" }, "uniqueItems": true },
           "scope_ref": { "type": "string", "description": "Capability in PRD section 7 this feature belongs to (GA3.4)." },
-          "status": { "enum": ["proposed", "approved", "removed"], "description": "Part A statuses; part B extends the list. Set by the factory state machine (GA3.5)." },
+          "status": { "enum": ["proposed", "approved", "specifying", "ready", "in_progress", "in_acceptance", "done", "removed"], "description": "Set by the factory state machine only (GA3.5). A3: proposed, approved, removed. B: specifying (B1), ready (spec approved), in_progress (B2-B6), in_acceptance (B7), done (merged)." },
+          "spec_version": { "type": "string", "description": "Approved spec version (B1); set by the factory." },
+          "released_in": { "type": "string", "description": "SemVer version the feature shipped in (B7); set by the factory." },
           "source": { "type": "string", "description": "briefing/<path>, answer <id> or attachment <path>." }
         },
         "additionalProperties": false
