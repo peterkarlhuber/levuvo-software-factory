@@ -34,9 +34,15 @@
 
 ## 4 UI reference
 <!-- Only if a design system applies; otherwise "Not applicable." -->
-| Screen | What the user sees and does | Components (DESIGN-SYSTEM.md) |
-|---|---|---|
-| {screen} | {description incl. visible labels the ACs rely on} | {components} |
+| Screen | Route | What the user sees and does | Components (DESIGN-SYSTEM.md) |
+|---|---|---|---|
+| {screen} | {/path – hidden tests navigate here} | {description incl. visible labels the ACs rely on} | {components} |
+
+## 4a Changes to other features
+<!-- Only if this feature changes criteria of done features (GB1.6); otherwise "None." -->
+| Feature | AC | Change | New text | Reason |
+|---|---|---|---|---|
+| {F-NNN} | {AC-NNN-nn} | {modify \| remove} | {new pass/fail statement} | {why} |
 
 ## 5 Out of scope
 - {What this feature deliberately does not do.}

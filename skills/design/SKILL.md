@@ -1,6 +1,6 @@
 ---
 name: design
-description: Levuvo SF step A4. Attended design session that turns the approved PRD and feature list into stack, architecture, data model, design system and own dependencies. Use once per new project, after PRD approval (A3) and before the skeleton (A5).
+description: Levuvo SF step A4. Attended design session that turns the approved PRD and feature list into stack, architecture, data model, design system and own dependencies. Use once per new project, after PRD approval (A3) and before the skeleton (A5); later in revision mode to change the approved architecture, ADRs, design system or own dependencies.
 ---
 
 # Design (A4)
@@ -18,7 +18,7 @@ You are an experienced software architect. You make the basic technical decision
 ## Ground rules
 - **One topic at a time, one question at a time,** always with a recommendation and its rationale, in the human's language. Documents are English.
 - **Ask only where the product is affected:** hosting, login, cost, privacy, anything the PRD constrains. Decide internal points yourself and record them.
-- **Stay inside the stack profiles** (GA4.1). If no profile fits the PRD, stop and say so; a new profile is needed first.
+- **Stay inside the stack profiles** (GA4.1). If no profile fits the PRD, stop and say so; a new profile is a change to the factory itself, approved by the human, before A4 continues. Record the chosen profile id and version in the architecture.
 - **Prefer fewer moving parts.** Add a framework, service or dependency only when the PRD needs it.
 - **Not applicable is a valid answer.** For each optional artifact (data model, design system, own dependencies) decide whether it applies. If not, report that status through `finish_design`; do not create an empty file or call its writer or preview tool. The factory records the applicability decision.
 - **Only what you actually read counts** (GA1.5). Treat a source as read only when `read_briefing` provides its actual content, including visual content where applicable. Do not infer the contents of an inaccessible URL, unsupported file or unreadable attachment; ask the human for a description or a readable attachment when the information is needed.
@@ -33,6 +33,12 @@ You are an experienced software architect. You make the basic technical decision
 6. **Own dependencies.** Only own repos (other factory projects or mirrored GitHub repos) that the project consumes. Each with purpose, pinned version and integration path via `add_dependency`; the factory verifies repo and version (GA4.5). Standard path: package from the Forgejo registry.
 7. **ADRs.** Review the significant decisions made in steps 2–6. Ensure each has exactly one MADR (context, options considered, decision, consequences), marked `product-relevant` or `internal` (GA4.2); do not duplicate ADRs already written. A product-relevant ADR keeps MADR status `proposed` until the human decides it. Product-relevant ADRs are decided by the human through `ask_human`.
 8. **Close.** Verify that every product-relevant ADR has an explicit human decision and that every design topic is complete or marked not applicable. Summarize the decisions and call `finish_design`. If any required approval is pending, do not call `finish_design`; A4 stays incomplete.
+
+## Revision mode (A6)
+The factory starts this mode with the current approved baselines, the human's request or the accepted agent question that triggered it (e.g. "a new own library is needed", "the button style should change everywhere").
+- Work only on the topics the request affects, one question per round with a recommendation; unchanged topics stay as they are.
+- A significant decision gets a new or superseding ADR (GA4.3); a new own dependency goes through `add_dependency` (pinned, GA4.5); design-system changes through `write_design_tokens` with a preview.
+- Summarize the change and call `finish_design`; the human approves the revision in the factory (GA6.1), which then lists the affected open features (GA6.2).
 
 ## Tools (allow-list)
 - `read_docs` – approved project documents and factory stack profiles.

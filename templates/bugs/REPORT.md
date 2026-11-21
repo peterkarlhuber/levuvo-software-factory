@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | {triage \| decided \| in_progress \| in_acceptance \| done \| closed ({reason})} – state at the last factory commit; the factory shows the current status |
+| Status | {triage \| decided \| in_progress \| waiting \| in_acceptance \| done \| closed ({reason})} – state at the last factory commit; the factory shows the current status |
 | Reported | {YYYY-MM-DD HH:MM} |
 | Category | {proposed: Bug \| Change \| New feature} · {decided by the human on YYYY-MM-DD \| open} |
 | Affects | {F-NNN} spec v{n} · {AC-NNN-nn, …} · {modules} |

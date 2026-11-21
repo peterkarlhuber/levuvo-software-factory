@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:question-answer:0.1",
+  "$id": "urn:levuvo:sf:schema:question-answer:0.2",
   "title": "Levuvo SF question and answer (R2, G2.1, G2.3, G2.5)",
   "description": "One message in the fixed R2 format (question, change request, escalation or failure report) and the human's answer. Used by ask_human and stop_with_question.",
   "type": "object",
@@ -81,6 +81,38 @@
               "consequences": {
                 "type": "string",
                 "minLength": 1
+              },
+              "spec_delta": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Option that changes the spec: the exact delta; choosing it approves exactly this delta (G2.4). Validated by the factory like a revision before the question is shown.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "op",
+                    "target",
+                    "text"
+                  ],
+                  "properties": {
+                    "op": {
+                      "enum": [
+                        "add",
+                        "modify",
+                        "remove"
+                      ]
+                    },
+                    "target": {
+                      "type": "string",
+                      "pattern": "^((AC|REQ)-[0-9]{3,}-[0-9]{2,}|UI:.+)$",
+                      "description": "AC, REQ, or UI:<screen name> for a change to the UI reference only (visual change, no AC)."
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
               }
             },
             "additionalProperties": false
@@ -187,8 +219,8 @@
       "properties": {
         "path": {
           "type": "string",
-          "pattern": "^briefing/",
-          "description": "Path in the project repo.",
+          "pattern": "^(briefing/|features/F-[0-9]{3,}/attachments/|bugs/BUG-[0-9]{3,}/attachments/)",
+          "description": "Path in the project repo (G2.5): briefing/ in part A and A6, features/<ID>/attachments/ in part B, bugs/<ID>/attachments/ in part C.",
           "not": {
             "pattern": "(^|/)\\.\\.(/|$)"
           }

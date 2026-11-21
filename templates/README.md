@@ -7,7 +7,7 @@ Versioned templates and schemas (R10, G10.2). Markdown templates are filled by t
 | [briefing/BRIEFING.md](briefing/BRIEFING.md) | A1 | Markdown, optional | – |
 | [briefing/inventory.schema.json](briefing/inventory.schema.json) | A1 | JSON Schema | IANA media types, SHA-256 |
 | [question/question-answer.schema.json](question/question-answer.schema.json) | all (R2, G2.5) | JSON Schema | R2 format |
-| [interview/interview-log.schema.json](interview/interview-log.schema.json) | A2, A4 | JSON Schema | reuses question-answer |
+| [interview/interview-log.schema.json](interview/interview-log.schema.json) | all (question log) | JSON Schema | reuses question-answer |
 | [prd/PRD.md](prd/PRD.md) | A3 | Markdown | common PRD sections, ISO/IEC/IEEE 29148:2018 principles |
 | [features/features.schema.json](features/features.schema.json) | A3, B | JSON Schema → FEATURES.md | MoSCoW |
 | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | A4 | Markdown | arc42 (lite), C4 model, Mermaid |
@@ -16,6 +16,7 @@ Versioned templates and schemas (R10, G10.2). Markdown templates are filled by t
 | [design-system/design-tokens.schema.json](design-system/design-tokens.schema.json) | A4 | JSON Schema (structural) | DTCG Format Module 2025.10 (preliminary check) |
 | [dependencies/dependencies.schema.json](dependencies/dependencies.schema.json) | A4 | JSON Schema | Package URL (ECMA-427), SemVer 2.0.0 |
 | [dor-dod/checklist.schema.json](dor-dod/checklist.schema.json) | A5 | JSON Schema | stack profile, human-approved DoR/DoD; gate results as JUnit XML / SARIF |
+| [stack-profile/profile.schema.json](stack-profile/profile.schema.json) | A4, A5, B2, B4 | JSON Schema (factory configuration in `stacks/<id>/`) | stack profile: commands, services, gates, test interface |
 | [spec/spec.schema.json](spec/spec.schema.json) + [spec/SPEC.md](spec/SPEC.md) | B1 | JSON Schema → Markdown | user stories, EARS, Gherkin, ISO/IEC/IEEE 29148 |
 | [plan/plan.schema.json](plan/plan.schema.json) + [plan/PLAN.md](plan/PLAN.md) | B2 | JSON Schema → Markdown | task checklist |
 | [scenarios/scenarios.schema.json](scenarios/scenarios.schema.json) | B2 | JSON Schema (factory store) | test → AC mapping |
@@ -28,3 +29,5 @@ Versioned templates and schemas (R10, G10.2). Markdown templates are filled by t
 | [lessons-learned/lessons-learned.schema.json](lessons-learned/lessons-learned.schema.json) + [lessons-learned/LESSONS-LEARNED.md](lessons-learned/LESSONS-LEARNED.md) | C3, B2, B3, B5 | JSON Schema → Markdown (`docs/`) | – |
 
 Not templated here: `.devcontainer/devcontainer.json` follows the Dev Container specification and `features/<ID>/openapi.yaml` the OpenAPI specification directly; in part C, build, gate and review reports carry the optional `report_id` and the scenario manifest marks bug tests with `bug`; hidden tests use the stack profile's test framework (Gherkin where supported); input schemas of the factory tools are defined with the tools.
+
+Schema tests: `python3 templates/tests/test_schemas.py` (valid and invalid examples for every schema, incl. the stack profile in `stacks/`; needs the `jsonschema` package, run inside a container).

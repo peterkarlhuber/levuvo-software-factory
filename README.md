@@ -9,3 +9,4 @@ Status: concept phase. The playbook and workflow specify the intended factory be
 - [AGENTS.md](AGENTS.md) – the agents of each workflow step: skill, factory tools, run profile and output.
 - [skills/](skills/) – one skill per agent step (Agent Skills format).
 - [templates/](templates/) – versioned templates and JSON schemas for all workflow artifacts.
+- [stacks/](stacks/) – the supported stack profiles (commands, services, gates, test interface, agent conventions).

@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:interview-log:0.1",
-  "title": "Levuvo SF interview log (A2, GA2.2, GA2.3)",
-  "description": "Written by the factory from ask_human calls. One log per attended session type (A2, A4); runs of a resumed session append.",
+  "$id": "urn:levuvo:sf:schema:interview-log:0.2",
+  "title": "Levuvo SF question log (all steps, R2, GA2.2, GA2.3)",
+  "description": "Written by the factory from ask_human and stop_with_question calls. One log per workflow item and step (e.g. A2, A4, A6, B1, B3 of F-003, C1 of BUG-002); runs of a resumed session append. inventory_version_read is required for A2 only.",
   "type": "object",
-  "required": ["step", "inventory_version_read", "status", "entries"],
+  "required": ["step", "status", "entries"],
   "properties": {
-    "step": { "enum": ["A2", "A4"] },
+    "step": { "type": "string", "pattern": "^[A-C][0-9]+$", "description": "Workflow step, e.g. A2, B1, C1 (C1/C2 triage is logged as C1)." },
+    "item": { "type": "string", "pattern": "^(F|BUG)-[0-9]{3,}$", "description": "Feature or report the log belongs to; none for part A." },
     "inventory_version_read": { "type": "integer", "minimum": 1 },
     "status": { "enum": ["running", "paused", "finished", "outdated"], "description": "outdated = briefing inventory changed after reading (GA2.3)." },
     "runs": {
@@ -29,8 +30,8 @@
         "type": "object",
         "required": ["question"],
         "properties": {
-          "question": { "$ref": "urn:levuvo:sf:schema:question-answer:0.1#/$defs/question" },
-          "answer": { "$ref": "urn:levuvo:sf:schema:question-answer:0.1#/$defs/answer" },
+          "question": { "$ref": "urn:levuvo:sf:schema:question-answer:0.2#/$defs/question" },
+          "answer": { "$ref": "urn:levuvo:sf:schema:question-answer:0.2#/$defs/answer" },
           "affected_sections": {
             "type": "array",
             "description": "PRD sections (A2) or design topics (A4) updated from this answer.",
@@ -41,5 +42,7 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "if": { "properties": { "step": { "const": "A2" } } },
+  "then": { "required": ["inventory_version_read"] }
 }

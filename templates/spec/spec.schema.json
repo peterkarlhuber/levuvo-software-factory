@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:spec:0.1",
+  "$id": "urn:levuvo:sf:schema:spec:0.3",
   "title": "Levuvo SF feature spec (B1, GB1.2, GB1.3, R1)",
-  "description": "Source of features/<ID>/SPEC.md (rendered by the factory). Written by the spec agent through tools; version, hash and approval are set by the factory only. The factory additionally checks that AC IDs carry the feature number, are unique and never reused across versions, and that the contract file is valid.",
+  "description": "Source of features/<ID>/SPEC.md (rendered by the factory). Written by the spec agent through tools; version, hash and approval are set by the factory only. The factory additionally checks that AC IDs carry the feature number, are unique and never reused across versions (a modified criterion keeps its ID; new IDs are always assigned by the factory), and that the contract file is valid.",
   "type": "object",
   "required": ["feature_id", "version", "status", "baselines", "user_stories", "requirements", "out_of_scope", "open_questions"],
   "properties": {
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
     "version": { "type": "integer", "minimum": 1, "description": "Set by the factory; a change is a new version (GB1.3)." },
     "previous_version": { "type": "integer", "minimum": 1, "description": "Set for revisions (G1.3)." },
-    "status": { "enum": ["draft", "approved", "superseded"], "description": "Set by the factory." },
+    "status": { "enum": ["draft", "approved", "released", "superseded"], "description": "Set by the factory. approved = approved by the human, on the feature or fix branch, not yet merged; released = merged into main with its code (G1.5); at most one approved version per feature." },
     "approved_by": { "type": "string", "description": "Factory-managed." },
     "approved_at": { "type": "string", "format": "date-time", "description": "Factory-managed." },
     "baselines": {
@@ -17,10 +17,10 @@
       "description": "Versions the spec was written against; set by the factory.",
       "required": ["prd", "architecture", "dor"],
       "properties": {
-        "prd": { "type": "string" },
-        "architecture": { "type": "string" },
-        "design_system": { "type": "string" },
-        "dor": { "type": "string" }
+        "prd": { "type": "integer", "minimum": 1 },
+        "architecture": { "type": "integer", "minimum": 1 },
+        "design_system": { "type": "integer", "minimum": 1, "description": "Missing when no design system applies." },
+        "dor": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
@@ -62,7 +62,7 @@
     },
     "contract": {
       "type": "object",
-      "description": "Only for API features: the interface contract (OpenAPI, or the format named by the API-style ADR).",
+      "description": "Only for API features: the endpoints this feature adds or changes (OpenAPI, or the format named by the API-style ADR); the factory merges it into docs/openapi.yaml on the branch.",
       "required": ["format", "path"],
       "properties": {
         "format": { "type": "string", "description": "E.g. openapi-3.1.1." },
@@ -80,9 +80,10 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name", "description"],
+            "required": ["name", "route", "description"],
             "properties": {
               "name": { "type": "string", "minLength": 1 },
+              "route": { "type": "string", "pattern": "^/", "description": "Path under the base URL where the screen is reached, e.g. /bookings/new. Part of the contract: hidden tests navigate here (stack profile test interface)." },
               "description": { "type": "string", "minLength": 1, "description": "What the user sees and does, incl. visible labels the acceptance criteria rely on." },
               "components": { "type": "array", "items": { "type": "string" }, "description": "Components from DESIGN-SYSTEM.md." }
             },
@@ -91,6 +92,25 @@
         }
       },
       "additionalProperties": false
+    },
+    "supersedes": {
+      "type": "array",
+      "description": "Criteria of other done features this spec changes openly (GB1.6). Approved with this spec; the factory releases the affected specs with the merge.",
+      "items": {
+        "type": "object",
+        "required": ["feature_id", "ac", "op", "reason"],
+        "properties": {
+          "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
+          "ac": { "type": "string", "pattern": "^AC-[0-9]{3,}-[0-9]{2,}$" },
+          "op": { "enum": ["modify", "remove"] },
+          "text": { "type": "string", "minLength": 1, "description": "New pass/fail statement (modify only)." },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false,
+        "if": { "properties": { "op": { "const": "modify" } } },
+        "then": { "required": ["text"] },
+        "else": { "not": { "required": ["text"] } }
+      }
     },
     "out_of_scope": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "May be empty, but must be stated." },
     "open_questions": {

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:levuvo:sf:schema:stack-profile:0.1",
+  "title": "Levuvo SF stack profile (A4, A5, B2, B4, GA4.1, G8.2)",
+  "description": "stacks/<id>/profile.json in the factory repo, never in a project. A stack profile is factory configuration: it changes only through a factory change approved by the human. It defines the project commands, the services the factory starts for runs, the allowed package registries, the mandatory gates with their fixed commands, and the test interface hidden tests rely on. Agent conventions for the stack are in stacks/<id>/CONVENTIONS.md.",
+  "type": "object",
+  "required": ["id", "version", "name", "image", "generator", "commands", "services", "registries", "gate_config", "gates", "tests"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "version": { "type": "integer", "minimum": 1, "description": "Projects record the profile id and version they were designed against (ARCHITECTURE.md)." },
+    "name": { "type": "string", "minLength": 1 },
+    "applies_to": { "type": "string", "description": "One or two sentences: which kind of product this stack is for." },
+    "image": { "type": "string", "minLength": 1, "description": "Worker and gate image. During the concept phase a tag; pinned by digest when implemented (R10)." },
+    "generator": { "type": "string", "minLength": 1, "not": { "pattern": "@latest\\b" }, "description": "Official, non-interactive generator command used by the skeleton (A5), with the generator pinned to an exact version; a new generator version is a new profile version." },
+    "commands": {
+      "type": "object",
+      "description": "Project commands the skeleton defines (A5). The factory calls them by name; dev and start listen on $HOST:$PORT given by the factory. Order for a gate run with fresh services: install, build, seed, start.",
+      "required": ["install", "dev", "test", "lint", "build", "start", "seed"],
+      "properties": {
+        "install": { "type": "string", "minLength": 1 },
+        "dev": { "type": "string", "minLength": 1 },
+        "test": { "type": "string", "minLength": 1 },
+        "lint": { "type": "string", "minLength": 1 },
+        "build": { "type": "string", "minLength": 1 },
+        "start": { "type": "string", "minLength": 1, "description": "Serves the built app (after build); hidden tests run against it." },
+        "seed": { "type": "string", "minLength": 1, "description": "Brings an empty database to the current schema (migrations) and creates the test user (tests.test_user); no other data." }
+      },
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "array",
+      "description": "Helper containers the factory starts next to a run (skeleton, build, triage, gates, preview). Each gate run gets fresh, empty instances.",
+      "items": {
+        "type": "object",
+        "required": ["name", "image", "env"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "image": { "type": "string", "minLength": 1, "description": "Pinned by digest when implemented." },
+          "env": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "description": "Variables the factory passes to the app, e.g. DATABASE_URL; values are generated per run." }
+        },
+        "additionalProperties": false
+      }
+    },
+    "companion_files": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Files a change may touch as a side effect (e.g. package-lock.json, generated migration metadata). The factory approves a builder's impact extension to them automatically (GB3.2); gate_config entries are never companion files."
+    },
+    "registries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^[a-z0-9.-]+(:[0-9]+)?$" },
+      "description": "Public hosts the egress proxy allows for this stack (G7.2). The factory's own local package registry (Forgejo) is always allowed in addition, for own libraries (GA4.6); no other network access."
+    },
+    "gate_config": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Gate-affecting project files (G8.2): a path or glob, or path#/json/pointer for part of a JSON file (e.g. package.json#/scripts). A change to any of them blocks the merge until the human authorizes it explicitly."
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Mandatory gates proposed as DoD items (A5). Commands are fixed here and run by the factory in its own container (G5.3, G8.2); project scripts may be called, but the factory judges the result itself.",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "result_format"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "result_format": { "enum": ["junit-xml", "sarif", "exit-code"] },
+          "dod_text": { "type": "string", "description": "Text of the DoD item the factory proposes for this gate." }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tests": {
+      "type": "object",
+      "description": "Test conventions and the test interface hidden tests rely on (B2). Part of the contract between scenario agent and builder.",
+      "required": ["unit_framework", "acceptance_framework", "gherkin", "fresh_services_per_run", "test_user", "entry"],
+      "properties": {
+        "unit_framework": { "type": "string", "minLength": 1 },
+        "acceptance_framework": { "type": "string", "minLength": 1 },
+        "gherkin": { "type": "boolean", "description": "Hidden tests may use executable Gherkin." },
+        "fresh_services_per_run": { "const": true, "description": "Every gate run starts with empty services; tests never reset data themselves." },
+        "test_user": {
+          "type": "object",
+          "description": "The one account seed creates. Credentials are test-only values, passed to tests as environment variables.",
+          "required": ["username_env", "password_env"],
+          "properties": {
+            "username_env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "password_env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+          },
+          "additionalProperties": false
+        },
+        "entry": { "type": "string", "minLength": 1, "description": "How tests reach the app, e.g. 'base URL in BASE_URL; screens by the route the spec names'." }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:build-report:0.2",
-  "title": "Levuvo SF build report (B3, GB3.4, R6)",
+  "$id": "urn:levuvo:sf:schema:build-report:0.3",
+  "title": "Levuvo SF build report (A5, B3, C3, GB3.4, R6)",
   "description": "Handed over with finish_build. The agent's own statements only (G6.1, G6.4); the factory adds facts (commits, results, cost) itself and shows these statements separately from independent findings. deviations is required, an empty list is allowed (GB3.4).",
   "type": "object",
-  "required": ["feature_id", "spec_version", "summary", "summary_language", "deviations", "assumptions", "risks"],
+  "required": ["mode", "summary", "summary_language", "deviations", "assumptions", "risks"],
   "properties": {
+    "mode": { "enum": ["feature", "skeleton"], "description": "skeleton = the skeleton report of A5 (finish_skeleton); feature = B3 and C3 (finish_build)." },
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
     "report_id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: the bug report this run belongs to (C3); feature_id and spec_version are then the affected feature and its current spec version." },
     "spec_version": { "type": "integer", "minimum": 1 },
@@ -27,7 +28,19 @@
     },
     "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-    "env_vars": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "description": "Required environment variables, names only, never values." }
+    "env_vars": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "description": "Required environment variables, names only, never values." },
+    "commands": {
+      "type": "object",
+      "description": "Skeleton only: the project commands as defined (stack profile names).",
+      "required": ["install", "dev", "test", "lint", "build", "start", "seed"],
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    { "if": { "required": ["mode"], "properties": { "mode": { "const": "feature" } } },
+      "then": { "required": ["feature_id", "spec_version"], "not": { "required": ["commands"] } } },
+    { "if": { "required": ["mode"], "properties": { "mode": { "const": "skeleton" } } },
+      "then": { "required": ["commands"], "not": { "anyOf": [ { "required": ["feature_id"] }, { "required": ["spec_version"] }, { "required": ["report_id"] } ] } } }
+  ]
 }

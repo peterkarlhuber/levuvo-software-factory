@@ -1,11 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:plan:0.1",
+  "$id": "urn:levuvo:sf:schema:plan:0.2",
   "title": "Levuvo SF feature plan (B2, GB2.1, GB3.2)",
-  "description": "Source of features/<ID>/PLAN.md (rendered by the factory). Written by the planner through tools; 'done' flags are set by the factory when the builder completes a task. The factory additionally checks that every AC of the spec version is covered by a task (GB2.1), that AC IDs exist in that version, and that the last task is the docs task. write_plan accepts only tasks with done: false; only complete_task (B3) sets done: true.",
+  "description": "Source of features/<ID>/PLAN.md (rendered by the factory). Written by the planner through tools; 'done' flags are set by the factory when the builder completes a task. The factory additionally checks that every AC of the spec version is covered by a task (GB2.1), that AC IDs exist in that version, and that the last task is the docs task. write_plan accepts only tasks with done: false; only complete_task (B3) sets done: true. In re-plan mode the factory carries the done state over for tasks unchanged from the previous plan version; new and changed tasks start open.",
   "type": "object",
   "required": ["feature_id", "spec_version", "tasks", "impact"],
   "properties": {
+    "version": { "type": "integer", "minimum": 1, "description": "Plan version, set by the factory; a re-plan (impact extension) creates a new version, the hidden scenarios stay valid (they depend on the spec only)." },
+    "report_id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Part C: a re-plan for a fix (C3) when the report's affected paths are not enough." },
     "feature_id": { "type": "string", "pattern": "^F-[0-9]{3,}$" },
     "spec_version": { "type": "integer", "minimum": 1, "description": "Set by the factory (R5)." },
     "tasks": {

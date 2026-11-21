@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:levuvo:sf:schema:bug-report:0.2",
+  "$id": "urn:levuvo:sf:schema:bug-report:0.3",
   "title": "Levuvo SF bug report (C1/C2, GC1.1-GC1.4, GC3.3)",
   "description": "Source of bugs/<ID>/REPORT.md (rendered by the factory). One report per problem the human describes, whatever its category. Fields follow the anomaly attributes of IEEE 1044 (description, steps, environment, status, disposition). The triage agent fills its parts through update_report; the factory sets id, status, original message, attachments, timestamps and the decision. The factory additionally checks that a referenced feature and its ACs exist in the named spec version (GC1.3), and that a duplicate points to an existing report.",
   "type": "object",
@@ -8,7 +8,7 @@
   "properties": {
     "id": { "type": "string", "pattern": "^BUG-[0-9]{3,}$", "description": "Permanent, never reused; set by the factory." },
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "status": { "enum": ["triage", "decided", "in_progress", "in_acceptance", "done", "closed"], "description": "Set by the factory state machine only. triage (C1/C2) → decided (human chose) → in_progress (C3, B4-B6) → in_acceptance (B7) → done (merged). closed = duplicate, handed over as new feature, or closed by the human." },
+    "status": { "enum": ["triage", "decided", "in_progress", "waiting", "in_acceptance", "done", "closed"], "description": "waiting = C3 waits for a fixed release of an own library (GA4.6, C3). Set by the factory state machine only. triage (C1/C2) → decided (human chose) → in_progress (C3, B4-B6) → in_acceptance (B7) → done (merged). closed = duplicate, handed over as new feature, or closed by the human." },
     "reported_at": { "type": "string", "format": "date-time" },
     "original_message": {
       "type": "object",
@@ -82,7 +82,7 @@
             "required": ["op", "target", "text"],
             "properties": {
               "op": { "enum": ["add", "modify", "remove"] },
-              "target": { "type": "string", "pattern": "^(AC|REQ)-[0-9]{3,}-[0-9]{2,}$", "description": "For add: the requirement (REQ) that gets a new AC, or the new REQ ID." },
+              "target": { "type": "string", "pattern": "^((AC|REQ)-[0-9]{3,}-[0-9]{2,}|UI:.+)$", "description": "UI:<screen name> = a visual change to the UI reference only (no AC, confirmed by the human in the preview). For add: the requirement (REQ) that gets a new AC, or the new REQ ID." },
               "text": { "type": "string", "minLength": 1, "description": "New statement (EARS sentence for REQ, pass/fail statement for AC); for remove the reason." }
             },
             "additionalProperties": false
@@ -132,7 +132,7 @@
                         "reproduction": { "properties": { "result": { "const": "reproduced" } } } } } },
     { "if": { "properties": { "proposal": { "properties": { "category": { "const": "change" } }, "required": ["category"] } }, "required": ["proposal"] },
       "then": { "required": ["affected"], "properties": { "affected": { "required": ["feature_id", "spec_version"] } } } },
-    { "if": { "properties": { "status": { "enum": ["decided", "in_progress", "in_acceptance", "done"] } } },
+    { "if": { "properties": { "status": { "enum": ["decided", "in_progress", "waiting", "in_acceptance", "done"] } } },
       "then": { "required": ["proposal", "decision"] } },
     { "if": { "properties": { "status": { "const": "closed" } } }, "then": { "required": ["closed_reason"] } },
     { "if": { "required": ["duplicate_of"] }, "then": { "properties": { "closed_reason": { "const": "duplicate" } } } },

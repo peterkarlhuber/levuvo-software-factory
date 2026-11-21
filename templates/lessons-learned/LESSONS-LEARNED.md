@@ -1,8 +1,8 @@
 # Lessons learned
 
 <!-- Rendered by the factory from lessons-learned.schema.json into docs/LESSONS-LEARNED.md. One entry per bug fix (GC3.2),
-     written by the builder through add_lesson. Planner, builder and reviewer get the active entries matching their paths
-     or modules. A second occurrence of the same cause (same_as) makes the factory propose a fixed check (lint rule, test
+     submitted by the builder through add_lesson and committed by the factory in the B6 commit. The planner gets the active
+     entries matching the feature's modules, the builder those matching its paths or modules; triage and reviewer get all. A second occurrence of the same cause (same_as) makes the factory propose a fixed check (lint rule, test
      or DoD item); once that is merged the entry is "promoted" and no longer handed to agents. The human may read it any time. -->
 
 ## {LL-NNN} – {title}

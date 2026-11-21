@@ -1,0 +1,44 @@
+{
+  "id": "nextjs-postgres",
+  "version": 1,
+  "name": "Web app: Next.js (TypeScript) + PostgreSQL",
+  "applies_to": "Web apps with UI and/or HTTP API, one TypeScript codebase for frontend and backend, data in PostgreSQL.",
+  "image": "node:22-bookworm",
+  "generator": "npx create-next-app@16.0.0 . --ts --eslint --app --src-dir --tailwind --use-npm --yes",
+  "commands": {
+    "install": "npm ci",
+    "dev": "npm run dev -- -H $HOST -p $PORT",
+    "test": "npm test",
+    "lint": "npm run lint",
+    "build": "npm run build",
+    "start": "npm run start -- -H $HOST -p $PORT",
+    "seed": "npm run seed"
+  },
+  "services": [
+    { "name": "db", "image": "postgres:17", "env": ["DATABASE_URL"] }
+  ],
+  "companion_files": ["package.json", "package-lock.json", "migrations/**"],
+  "registries": ["registry.npmjs.org"],
+  "gate_config": ["package.json#/scripts", "eslint.config.*", "tsconfig.json", "vitest.config.*", "next.config.*", "playwright.config.*"],
+  "gates": [
+    { "name": "build", "command": "npm ci && npm run build", "result_format": "exit-code", "dod_text": "The project builds from a clean checkout." },
+    { "name": "lint", "command": "npm run lint", "result_format": "exit-code", "dod_text": "Lint passes without errors." },
+    { "name": "type-check", "command": "npx tsc --noEmit", "result_format": "exit-code", "dod_text": "TypeScript type check passes." },
+    { "name": "visible-tests", "command": "npx vitest run --reporter=junit --outputFile=results/visible.xml", "result_format": "junit-xml", "dod_text": "All visible tests pass." },
+    { "name": "hidden-tests", "command": "factory: run hidden scenario set with Playwright against the built app", "result_format": "junit-xml", "dod_text": "All hidden acceptance tests pass." },
+    { "name": "ac-coverage", "command": "factory: every AC has a passing visible and hidden test", "result_format": "exit-code", "dod_text": "Every acceptance criterion has a passing visible and hidden test." },
+    { "name": "secret-scan", "command": "factory: secret scanner on the diff", "result_format": "sarif", "dod_text": "No secrets in the change." },
+    { "name": "vulnerability-scan", "command": "npm audit --omit=dev --audit-level=high", "result_format": "exit-code", "dod_text": "No known high or critical vulnerabilities in runtime dependencies." },
+    { "name": "license", "command": "factory: license check against the allowed list", "result_format": "exit-code", "dod_text": "All dependency licenses are on the allowed list." },
+    { "name": "conventional-commits", "command": "factory: commit message check", "result_format": "exit-code", "dod_text": "Every commit follows Conventional Commits." },
+    { "name": "accessibility", "command": "factory: axe check on the screens the spec names", "result_format": "sarif", "dod_text": "No WCAG 2.2 AA violations found by the automated check." }
+  ],
+  "tests": {
+    "unit_framework": "vitest",
+    "acceptance_framework": "playwright",
+    "gherkin": false,
+    "fresh_services_per_run": true,
+    "test_user": { "username_env": "TEST_USER", "password_env": "TEST_PASSWORD" },
+    "entry": "Base URL in BASE_URL. Each screen is reached by the route the spec names; login with TEST_USER / TEST_PASSWORD through the login screen; all other data is created through the UI or the API like a user would."
+  }
+}
