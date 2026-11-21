@@ -17,11 +17,11 @@ RUN install -d -m 0700 -o node -g node /var/lib/levuvo/data /var/lib/levuvo/runs
 COPY --from=deps /opt/levuvo/app/node_modules /opt/levuvo/app/node_modules
 COPY factory/api/package.json /opt/levuvo/app/
 COPY factory/api/src /opt/levuvo/app/src
-COPY factory/api/bin /opt/levuvo/app/bin
 COPY factory/api/prices.json /opt/levuvo/prices.json
 COPY skills /opt/levuvo/skills
 COPY templates /opt/levuvo/templates
-RUN chmod -R a+rX,go-w /opt/levuvo && ln -s /opt/levuvo/app/bin/levuvo-sf.mjs /usr/local/bin/levuvo-sf && chmod 0755 /opt/levuvo/app/bin/levuvo-sf.mjs
+COPY factory/ui /opt/levuvo/ui
+RUN chmod -R a+rX,go-w /opt/levuvo
 ENV LEVUVO_SF_TEMPLATES=/opt/levuvo/templates
 
 # unit tests with the coverage floor: docker build --target test -f factory/api/Dockerfile .

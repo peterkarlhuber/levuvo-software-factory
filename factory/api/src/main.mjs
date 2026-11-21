@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Levuvo SF factory service: wires settings, briefing, interview, runner and the internal API together.
+// Levuvo SF factory service: wires settings, briefing, interview, runner, the internal API and the web UI together.
 // Paths (volumes, see compose.yaml): /var/lib/levuvo/data (state, factory only), /var/lib/levuvo/runs (the run
 // folders; a run container sees only its own `in` read-only and `io`), /run/levuvo/tokens (run tokens for the model
 // gateway), /var/lib/levuvo/usage (the gateway's usage records, read-only here), /run/levuvo/git (Forgejo token,
@@ -13,7 +13,7 @@ import { createInterview } from "./interview.mjs";
 import { createRunner } from "./runner.mjs";
 import { createSettings } from "./settings.mjs";
 import { createValidator } from "./schemas.mjs";
-import { createApi, createProjects } from "./server.mjs";
+import { createApi, createProjects, loadUi } from "./server.mjs";
 import { createLocks, readJson, writeJson } from "./store.mjs";
 
 const PORT = Number(process.env.LEVUVO_SF_API_PORT ?? 3100);
@@ -41,7 +41,7 @@ const runner = createRunner({
   skillsDir: "/opt/levuvo/skills", composeProject, log,
 });
 await runner.recover(projects.list().map((p) => p.slug));
-createApi({ port: PORT, projects, briefing, interview, runner, settings, lock, log }).listen(3100, "0.0.0.0", () => log({ action: "listening", port: 3100, project: composeProject }));
+createApi({ port: PORT, projects, briefing, interview, runner, settings, lock, log, ui: loadUi("/opt/levuvo/ui") }).listen(3100, "0.0.0.0", () => log({ action: "listening", port: 3100, project: composeProject }));
 // docker compose stop: end every active run cleanly (container removed, token revoked, record written) before exiting
 let stopping = false;
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, async () => {
