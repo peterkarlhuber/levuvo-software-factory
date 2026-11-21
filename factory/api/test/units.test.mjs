@@ -166,6 +166,28 @@ test("forgejo: private repo, protected main; removed again when protection fails
   srv.close();
 });
 
+test("docker wait survives a connection cut AFTER the response headers, and a silent one (regression: a 15-minute interview hung after its run had ended)", async () => {
+  let waits = 0;
+  let running = true;
+  const srv = createServer((req, res) => {
+    if (req.url === "/containers/c1/wait") {
+      waits++;
+      res.writeHead(200, { "content-type": "application/json" }); res.flushHeaders(); // Docker answers the headers at once
+      if (waits === 1) return setTimeout(() => req.socket.destroy(), 50); // the proxy's idle timeout cuts the body
+      if (waits === 2) { running = false; return; } // a silent connection: only the slice timeout ends it
+      return res.end(JSON.stringify({ StatusCode: 0 }));
+    }
+    if (req.url === "/containers/c1/json") return res.end(JSON.stringify({ State: { Running: running, ExitCode: 7 } }));
+    res.statusCode = 404; res.end("{}");
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const docker = createDocker({ host: "127.0.0.1", port: srv.address().port, waitSliceMs: 300 });
+  try {
+    assert.deepEqual(await docker.wait("c1"), { StatusCode: 7 }, "exit code from the container state once it has stopped");
+    assert.equal(waits, 2);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
 test("docker wait survives a dropped connection and waits again while the container runs (regression: idle socket timeout ended live runs)", async () => {
   let waits = 0;
   let running = true;

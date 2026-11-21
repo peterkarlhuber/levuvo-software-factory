@@ -8,12 +8,16 @@ export const WORKER_IMAGE = "levuvo-sf/worker:local";
 export const LABEL = "dev.levuvo-sf.run";
 const RUN_ID = /^run-[a-z0-9]{6,40}$/;
 
-export function createDocker({ host = "docker-proxy", port = 2375 } = {}) {
+export function createDocker({ host = "docker-proxy", port = 2375, waitSliceMs = 5 * 60_000 } = {}) {
   function api(method, path, body, { timeout = 30_000, raw = false } = {}) {
     return new Promise((resolve, reject) => {
       const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
       const req = request({ host, port, method, path, agent: false, timeout: timeout || undefined, headers: data ? { "content-type": "application/json", "content-length": data.length } : {} }, (res) => {
         const chunks = [];
+        // a connection cut after the headers (e.g. the proxy's idle timeout during a long wait) must fail the call,
+        // never leave it pending forever (regression: an interview over 10 minutes hung after its run had ended)
+        res.on("error", reject);
+        res.on("close", () => { if (!res.complete) reject(new Error(`docker ${method} ${path.split("?")[0]}: connection closed early`)); });
         res.on("data", (c) => chunks.push(c)).on("end", () => {
           const buf = Buffer.concat(chunks);
           if (res.statusCode >= 400) return reject(Object.assign(new Error(`docker ${method} ${path.split("?")[0]}: ${res.statusCode} ${buf.toString().slice(0, 300)}`), { status: res.statusCode }));
@@ -26,11 +30,12 @@ export function createDocker({ host = "docker-proxy", port = 2375 } = {}) {
       req.end(data);
     });
   }
-  /** Waits until the container has exited. A long wait can be cut by the proxy's idle timeout (10 min): then it checks
-   * that the container still runs and waits again, so a live run is never ended by a dropped connection. */
+  /** Waits until the container has exited, in slices shorter than the proxy's idle timeout (10 min): when a slice
+   * ends or the connection is cut, it checks that the container still runs and waits again, so a live run is never
+   * ended by a dropped connection and an ended run is always noticed. */
   async function wait(id) {
     for (;;) {
-      try { return await api("POST", `/containers/${id}/wait`, undefined, { timeout: 0 }); } catch (e) {
+      try { return await api("POST", `/containers/${id}/wait`, undefined, { timeout: waitSliceMs }); } catch (e) {
         const s = await api("GET", `/containers/${id}/json`).catch((x) => (x.status === 404 ? null : Promise.reject(e)));
         if (!s) throw e;
         if (!s.State?.Running) return { StatusCode: s.State?.ExitCode ?? null };

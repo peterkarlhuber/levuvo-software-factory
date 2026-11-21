@@ -66,7 +66,8 @@ export function createRunner({ dirs, docker, interview, briefing, settings, pric
     log({ action: "run_started", run: id, project: slug, model: r.model, effort: r.effort });
     resetIdle(id);
     state.poll = setInterval(() => poll(id).catch((e) => log({ action: "poll_error", run: id, error: e.message })), pollMs);
-    docker.wait(state.containerId).then((x) => finish(id, null, null, x?.StatusCode), (e) => finish(id, "failed", e.message));
+    docker.wait(state.containerId).then((x) => finish(id, null, null, x?.StatusCode), (e) => finish(id, "failed", e.message))
+      .catch((e) => log({ action: "finish_failed", run: id, error: e.message })); // never a silent hang
     return { run_id: id };
   }
 
