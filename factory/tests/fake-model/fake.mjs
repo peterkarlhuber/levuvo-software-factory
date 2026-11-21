@@ -59,11 +59,20 @@ const SCRIPTS = {
     () => ["ask_human", { finding: "Gäste werden erwähnt.", decision_needed: "Nur Mitglieder buchen?", recommendation: rec, prd_sections: [3] }],
     () => "paused?",
   ],
-  // `levuvo-sf demo` as the owner runs it (regression: the demo's first POST without a body was refused)
+  // `levuvo-sf demo` as the owner runs it, to the end (regressions: first POST without a body was refused; the summary
+  // was read before the run had ended; "1, aber …" must arrive as option plus note)
   demo: [
     () => ["read_briefing", {}],
-    () => ["ask_human", { finding: "Das Briefing beschreibt eine Platzbuchung.", decision_needed: "Nur Mitglieder buchen?", recommendation: rec, prd_sections: [3] }],
-    (h) => (/"answer": "Ja"/.test(h.at(-1).text) ? "demo done" : mismatch("demo answer with the recommendation")),
+    () => ["ask_human", { finding: "Das Briefing beschreibt eine Platzbuchung.", decision_needed: "Passt alles so?", options: [{ label: "Ja", consequences: "so übernehmen" }, { label: "Nein", consequences: "ändern" }], recommendation: { option: 0, answer: "Ja", reason: "passt zum Briefing" }, prd_sections: PRD_ALL }],
+    ...PRD_ALL.map((s) => (h) => {
+      const r = h.filter((x) => x.name === "ask_human").at(-1)?.text ?? "";
+      if (s === 1 && !(/"chosen_option": 0/.test(r) && /Viertelstunde/.test(r))) return mismatch(`demo answer must be option 1 plus the note: ${r}`);
+      return ["update_prd_section", { section: s, status: "confirmed", content: `Section ${s}.`, source: "briefing/idea.md; answer Q-001", answer_ref: "Q-001" }];
+    }),
+    (h) => (h.at(-1).isError ? mismatch(`section update failed: ${h.at(-1).text}`) : ["update_features", { features: [{ name: "Book a court", summary: "Members book a court.", priority: "must", depends_on: [], scope_ref: "Booking", source: "briefing/idea.md" }] }]),
+    () => ["ask_human", { finding: "Alles ist erfasst.", decision_needed: "Interview beenden?", recommendation: rec, closing: true }],
+    () => ["finish_interview", { summary: "Demo." }],
+    (h) => (h.at(-1).isError ? mismatch(`finish refused: ${h.at(-1).text}`) : "demo done"),
   ],
   "e2e-timeout": [
     () => ["read_briefing", {}],

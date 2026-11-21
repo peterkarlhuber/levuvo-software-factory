@@ -229,10 +229,17 @@ check "reason: paused_wait_timeout" paused_wait_timeout "$(get /api/projects/e2e
 post /api/settings '{"ask_human_wait_minutes":10}' PUT >/dev/null
 
 echo "› levuvo-sf demo as the owner runs it (README step 5)"
-# answers like a person: Enter once the question is shown, stdin stays open until the demo has ended
-answer_demo() { for _ in $(seq 1 90); do dc exec -T factory levuvo-sf status 2>/dev/null | grep -q '^demo-.*waiting for Q-' && break; sleep 1; done; printf '\n'; sleep 20; }
+# answers like a person: types once each question is shown, stdin stays open until the demo has ended
+answer_demo() {
+  for a in "1, aber Buchung im Viertelstundentakt" ""; do
+    for _ in $(seq 1 90); do dc exec -T factory levuvo-sf status 2>/dev/null | grep -q '^demo-.*waiting for Q-' && break; sleep 1; done
+    printf '%s\n' "$a"; sleep 3
+  done
+  sleep 20
+}
 out="$(answer_demo | dc exec -T factory levuvo-sf demo 2>&1 || true)"
-if grep -q "Your answer:" <<< "$out" && grep -q "^Interview paused (ended_without_finish)" <<< "$out" && grep -qE "^Tokens: [1-9][0-9]* in" <<< "$out"; then ok "demo: question, answer, end with usage"; else bad "demo: question, answer, end with usage ($(tail -5 <<< "$out" | tr '\n' ' '))"; fi
+if grep -q "Empfehlung:" <<< "$out" && grep -q "^Interview finished (finished)" <<< "$out" && grep -qE "^Tokens: [1-9][0-9]* in" <<< "$out" && grep -q "## 1 Vision" <<< "$out"; then ok "demo: German labels, option plus note, finished with usage and PRD"; else bad "demo: German labels, option plus note, finished with usage and PRD ($(tail -8 <<< "$out" | tr '\n' ' '))"; fi
+if dc logs fake-model 2>/dev/null | grep '"project":"demo"' | grep -q mismatch; then bad "demo: the fake model saw what it expected"; else ok "demo: the fake model saw what it expected"; fi
 check "status lists the demo project" 1 "$(dc exec -T factory levuvo-sf status | grep -c '^demo-')"
 
 echo "› the API key appears nowhere else"

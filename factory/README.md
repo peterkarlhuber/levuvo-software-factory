@@ -40,7 +40,7 @@ docker compose run --rm set-api-key
 docker compose exec git cat /var/lib/gitea/levuvo/admin-password
 ```
 
-**5. See an interview run** – the interviewer asks you about a small sample idea (a tennis club court booking) in the terminal, using the real model; it costs a few cents (estimate). Enter alone takes the recommendation, `p` pauses, `q` pauses and quits. At the end it shows the PRD draft, the feature list and the tokens used:
+**5. See an interview run** – the interviewer asks you about a small sample idea (a tennis club court booking) in the terminal, using the real model; it costs a few cents (estimate). Enter alone takes the recommendation, a number picks an option, `1, but …` picks option 1 and adds a note, `p` pauses, `q` pauses and quits. Labels follow the language setting (German by default). At the end it shows the PRD draft, the feature list and the tokens used:
 
 ```sh
 docker compose exec factory levuvo-sf demo
