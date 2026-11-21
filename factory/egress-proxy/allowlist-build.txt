@@ -1,0 +1,5 @@
+# Egress profile "build": runs that also install packages (skeleton builder, builder).
+# One host per line, exact match, port 443 unless "host:port".
+# Changing this list loosens a security boundary (PLAYBOOK G7.2): only through a reviewed and approved PR.
+api.anthropic.com
+registry.npmjs.org
