@@ -1,0 +1,4 @@
+# Egress profile "model": runs that only talk to the model (interviewer, designer, spec writer, planner,
+# scenario tester, reviewer, triage). One host per line, exact match, port 443 unless "host:port".
+# Changing this list loosens a security boundary (PLAYBOOK G7.2): only through a reviewed and approved PR.
+api.anthropic.com

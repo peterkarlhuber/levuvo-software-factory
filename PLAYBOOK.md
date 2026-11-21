@@ -1,6 +1,6 @@
 # Levuvo SF Playbook
 
-Status: draft v0.6.2 · 2026-11-21
+Status: draft v0.6.3 · 2026-11-21
 
 The Levuvo SF Playbook is the set of rules every Levuvo Software Factory run follows. It applies to all projects and all workflow steps (see [WORKFLOW.md](WORKFLOW.md)).
 
@@ -158,6 +158,7 @@ Every artifact has a fixed template, using standards where they exist. Artifacts
 | SARIF | 2.1.0 | Findings of scanners and the review | A5, B4, B5 |
 | Conventional Commits | 1.0.0 | Commit messages, changelog and version proposal | A5, B3, B6, C3 |
 | Keep a Changelog | 1.1.0 | `CHANGELOG.md` | B6, B7 |
+| Compose Specification | compose-spec.io, as implemented by Docker Compose v2 | Definition of the factory's own container stack (`factory/compose.yaml`) | factory |
 | OpenTelemetry GenAI semantic conventions | schema version pinned at implementation | Run and cost records | R11, R12 |
 
 ### R11 – Visible progress and full trace
@@ -187,6 +188,7 @@ If an agent hits a dead end, it stops and reports `failed` with the reason inste
 ---
 
 ## Change log
+- 0.6.3 (2026-11-21): Implementation block 1 (factory base): Compose Specification added to the standards table.
 - 0.6.2 (2026-11-21): Workflow part D: backlog added to the template list; MoSCoW marked preliminary, the backlog sets the work order. Model and reasoning effort per agent role as settings (default Opus 5.5, effort medium), effort logged per run (G11.2).
 - 0.6.1 (2026-11-21): Billing modes *API* (default) and *subscription*, switchable by a setting; subscription only through the official CLI with the human's `setup-token`, an approved exception to keeping credentials out of containers (G7.4); estimated cost in subscription mode (G12.1); billing mode logged per run (G11.2). V1 marks: pointer to the version 1 scope (WORKFLOW.md); prompt-injection detection instructed only (R9); cost warning and brake default to no limit (G12.2).
 - 0.6.0 (2026-11-21): Self-audit: G2.2 bounded wait in attended sessions; G2.5 attachment folders per part; G4.3 separate gate and review rounds; G5.2 factory-only commits keep the review; G5.4 deterministic re-review rule; G5.5 tree hash, version number set at merge; G7.3 factory pushes; G7.4 model API key only in the proxy; G13.1 oscillation, G13.5 per-run turn cap as a setting; model per run profile as a setting; spec travels with the code, approved vs released, at most one open version per feature (G1.5, G1.1, G1.3); the human approves only spec text they have seen (G2.4); term stack profile; G5.3 gate containers without Docker socket; G8.2 gate commands from the stack profile, results judged by the factory; stack profile added to the template list. ChatGPT re-audit: version number set before the final checks (G5.5); gate-affecting files listed in the stack profile (G8.2); attachments outside `briefing/` tracked in the question log (G2.5).

@@ -1,0 +1,130 @@
+# Levuvo SF – base stack (implementation block 1): local Forgejo and the egress proxies.
+# Start (from this folder): docker compose up -d --build      Guide: README.md
+#
+# Security model (PLAYBOOK G7.1, G7.2):
+# - every container runs as a non-root user, with all Linux capabilities dropped, no-new-privileges, a read-only
+#   root filesystem and memory/CPU/process limits; data only in named volumes, temporary files in tmpfs
+# - agent containers (block 2 on) are put on one of the internal agent networks; their only way out is the egress
+#   proxy of that network, which lets HTTPS through to the hosts of its profile only
+# - the git server is reachable from the Mac on 127.0.0.1 only, and inside Docker only on the internal network
+#   `levuvo-sf-factory`, which agent containers never join
+name: levuvo-sf
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-egress: &egress
+  <<: *hardened
+  image: levuvo-sf/egress-proxy:local
+  build: ./egress-proxy
+  restart: unless-stopped
+  mem_limit: 128m
+  cpus: 0.5
+  pids_limit: 64
+  healthcheck:
+    test: ["CMD", "node", "-e", "require('net').connect(3128,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+
+services:
+  # Local git server: repositories, pull requests, branch protection (WORKFLOW A0, GA0.1, GA0.2).
+  git:
+    <<: *hardened
+    # Forgejo 15 LTS, pinned by version tag (the build session cannot reach codeberg.org to read the digest)
+    image: codeberg.org/forgejo/forgejo:15.0.7-rootless
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    environment:
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__server__ROOT_URL: http://localhost:${LEVUVO_SF_GIT_PORT:-3000}/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__service__DEFAULT_ALLOW_CREATE_ORGANIZATION: "false"
+      FORGEJO__repository__DEFAULT_BRANCH: main
+      FORGEJO__repository__DEFAULT_PRIVATE: private
+      FORGEJO__repository__FORCE_PRIVATE: "true"
+      FORGEJO__repository__DISABLE_MIGRATIONS: "true"
+      FORGEJO__mirror__ENABLED: "false"
+      FORGEJO__actions__ENABLED: "false"          # CI comes in block 4
+      FORGEJO__webhook__ALLOWED_HOST_LIST: loopback
+      FORGEJO__cron.update_checker__ENABLED: "false"
+      FORGEJO__federation__ENABLED: "false"
+      FORGEJO__log__LEVEL: Warn
+    volumes:
+      - git-data:/var/lib/gitea
+    tmpfs: [/tmp]
+    ports:
+      - "127.0.0.1:${LEVUVO_SF_GIT_PORT:-3000}:3000"
+    networks: [web, factory]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # One-shot setup after every start: admin `levuvo-admin`, organization `levuvo-sf` (idempotent, git-init/init.sh).
+  git-init:
+    <<: *hardened
+    image: codeberg.org/forgejo/forgejo:15.0.7-rootless
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    entrypoint: ["/bin/sh", "/opt/levuvo/init.sh"]
+    environment:
+      FORGEJO__database__DB_TYPE: sqlite3
+    volumes:
+      - git-data:/var/lib/gitea
+      - ./git-init/init.sh:/opt/levuvo/init.sh:ro
+    tmpfs: [/tmp]
+    networks: [factory]
+    depends_on:
+      git: { condition: service_healthy }
+
+  # Egress profile "model": only the model API (interviewer, designer, spec writer, planner, scenario tester,
+  # reviewer, triage). Agent runs on `levuvo-sf-agents-model` use http://egress-model:3128 as their proxy.
+  egress-model:
+    <<: *egress
+    environment: { EGRESS_PROFILE: model }
+    networks: [agents-model, internet]
+
+  # Egress profile "build": model API plus the npm registry (skeleton builder, builder).
+  # Agent runs on `levuvo-sf-agents-build` use http://egress-build:3128 as their proxy.
+  egress-build:
+    <<: *egress
+    environment: { EGRESS_PROFILE: build }
+    networks: [agents-build, internet]
+
+volumes:
+  git-data:
+    name: levuvo-sf-git
+
+networks:
+  # host port of the git server (a published port needs a non-internal network)
+  web:
+    name: levuvo-sf-web
+  # trusted factory services only (the factory API joins in block 2); never an agent container
+  factory:
+    name: levuvo-sf-factory
+    internal: true
+  agents-model:
+    name: levuvo-sf-agents-model
+    internal: true
+  agents-build:
+    name: levuvo-sf-agents-build
+    internal: true
+  # the proxies' way out
+  internet:
+    name: levuvo-sf-internet
