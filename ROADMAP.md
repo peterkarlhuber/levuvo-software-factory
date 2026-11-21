@@ -23,7 +23,7 @@ One line per item: what it is and where it stands. An item is worked out only wh
 - Part D: backlog and prioritization
 - Part C: bug or change
 - V1 check: build a first small real project end to end with the factory
-- Set up the home server (GMKtec NucBox) as a second place to run the factory
+- Set up the home server (GMKtec NucBox) as a second place to run the factory – when it arrives
 
 ## After V1
 - Stacks discussion (must happen): which stack profiles to add and how – everything possible, but deliberately and targeted
